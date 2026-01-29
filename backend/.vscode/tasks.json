@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "verify-kundli-panchang",
+			"type": "shell",
+			"command": "./venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"from app.astrology import calculate_complete_kundli; r=calculate_complete_kundli('2003-09-22','11:30',24.1,88.25); print(r['panchang'].get('sunrise'), r['panchang'].get('sunset'), r['panchang'].get('ayanamsha')); print(r.get('avakhada',{}))"
+			],
+			"isBackground": false
+		}
+	]
+}

@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Logs
+*.log
+
+# Local env files
+.env
+.env.*
+
+# Database / local state
+*.sqlite3
+*.db
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Uvicorn reload artifacts (rare)
+*.pid

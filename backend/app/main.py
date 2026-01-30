@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from fastapi.middleware.cors import CORSMiddleware
 from . import models, database, astrology
+from .dasha_logic import calc_vimshottari_subperiods
 from pydantic import BaseModel
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import quote
@@ -17,10 +18,191 @@ models.Base.metadata.create_all(bind=database.engine)
 try:
     with database.engine.begin() as conn:
         conn.execute(text("ALTER TABLE kundli_records ADD COLUMN IF NOT EXISTS gender VARCHAR"))
-        conn.execute(text("ALTER TABLE kundli_records ADD COLUMN IF NOT EXISTS avakhada JSON"))
+        conn.execute(text("ALTER TABLE kundli_records ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION"))
+        conn.execute(text("ALTER TABLE kundli_records ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION"))
 except Exception:
     # Non-fatal: if this fails, new DBs will still have the column via models.py.
     pass
+
+
+def _coerce_json(value):
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return None
+    return None
+
+
+def _migrate_legacy_json_to_normalized_if_present() -> None:
+    """Best-effort migration for older rows created before normalization.
+
+    If kundli_records still has JSON columns, copy their content into the normalized tables
+    (only when missing), then we can safely drop the JSON columns.
+    """
+
+    try:
+        insp = inspect(database.engine)
+        cols = {c["name"] for c in insp.get_columns("kundli_records")}
+    except Exception:
+        return
+
+    legacy_cols = {"panchang", "planets", "avakhada", "dasha"}
+    if not legacy_cols.issubset(cols):
+        return
+
+    db = database.SessionLocal()
+    try:
+        rows = (
+            db.execute(
+                text(
+                    "SELECT id, panchang, planets, avakhada, dasha FROM kundli_records "
+                    "ORDER BY id DESC"
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        for r in rows:
+            record_id = int(r["id"])
+
+            # Panchang 1:1
+            exists = db.execute(
+                text("SELECT 1 FROM kundli_panchang WHERE record_id = :id"), {"id": record_id}
+            ).first()
+            if not exists:
+                p = _coerce_json(r["panchang"]) or {}
+                db.add(
+                    models.KundliPanchang(
+                        record_id=record_id,
+                        lagna=p.get("lagna"),
+                        lagna_rashi=p.get("lagna_rashi"),
+                        lat=p.get("lat"),
+                        lon=p.get("lon"),
+                        tz=p.get("tz"),
+                        tithi=p.get("tithi"),
+                        tithi_num=p.get("tithi_num"),
+                        karan=p.get("karan"),
+                        yog=p.get("yog"),
+                        nakshatra=p.get("nakshatra"),
+                        sunrise=p.get("sunrise"),
+                        sunset=p.get("sunset"),
+                        ayanamsha=p.get("ayanamsha"),
+                    )
+                )
+
+            # Avakhada 1:1
+            exists = db.execute(
+                text("SELECT 1 FROM kundli_avakhada WHERE record_id = :id"), {"id": record_id}
+            ).first()
+            a = _coerce_json(r["avakhada"]) or {}
+            if not exists and a:
+                db.add(
+                    models.KundliAvakhada(
+                        record_id=record_id,
+                        varna=a.get("varna"),
+                        vashya=a.get("vashya"),
+                        yoni=a.get("yoni"),
+                        yoni_english=a.get("yoni_english"),
+                        gan=a.get("gan"),
+                        nadi=a.get("nadi"),
+                        sign=a.get("sign"),
+                        sign_lord=a.get("sign_lord"),
+                        nakshatra_charan=a.get("nakshatra_charan"),
+                        yog=a.get("yog"),
+                        karan=a.get("karan"),
+                        tithi=a.get("tithi"),
+                        paya=a.get("paya"),
+                        paya_nakshatra=a.get("paya_nakshatra"),
+                        paya_moon_house=a.get("paya_moon_house"),
+                        moon_house=a.get("moon_house"),
+                        name_alphabet=a.get("name_alphabet"),
+                    )
+                )
+
+            # Planets 1:N
+            exists = db.execute(
+                text("SELECT 1 FROM kundli_planets WHERE record_id = :id LIMIT 1"),
+                {"id": record_id},
+            ).first()
+            if not exists:
+                for pl in _coerce_json(r["planets"]) or []:
+                    db.add(
+                        models.KundliPlanet(
+                            record_id=record_id,
+                            name=pl.get("name"),
+                            lon=pl.get("lon"),
+                            deg=pl.get("deg"),
+                            rashi=pl.get("rashi"),
+                            sign=pl.get("sign"),
+                            sign_lord=pl.get("sign_lord"),
+                            nakshatra=pl.get("nakshatra"),
+                            nakshatra_pada=pl.get("nakshatra_pada"),
+                            nakshatra_lord=pl.get("nakshatra_lord"),
+                            house=pl.get("house"),
+                            retro=pl.get("retro"),
+                            combust=pl.get("combust"),
+                        )
+                    )
+
+            # Dasha periods 1:N
+            exists = db.execute(
+                text("SELECT 1 FROM kundli_dasha_periods WHERE record_id = :id LIMIT 1"),
+                {"id": record_id},
+            ).first()
+            if not exists:
+                for i, row in enumerate(_coerce_json(r["dasha"]) or []):
+                    db.add(
+                        models.KundliDashaPeriod(
+                            record_id=record_id,
+                            level="mahadasha",
+                            seq=i,
+                            planet=row.get("planet"),
+                            start_date=row.get("start_date"),
+                            end_date=row.get("end_date"),
+                            start_label=row.get("start_label"),
+                            years=row.get("years"),
+                            total_years=row.get("total_years"),
+                            offset_years=row.get("offset_years"),
+                        )
+                    )
+
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _drop_legacy_json_columns_best_effort() -> None:
+    # NOTE: SQLite can't reliably DROP COLUMN without table rebuild; we skip there.
+    try:
+        if database.engine.dialect.name.startswith("sqlite"):
+            return
+    except Exception:
+        return
+
+    try:
+        with database.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE kundli_records DROP COLUMN IF EXISTS panchang"))
+            conn.execute(text("ALTER TABLE kundli_records DROP COLUMN IF EXISTS planets"))
+            conn.execute(text("ALTER TABLE kundli_records DROP COLUMN IF EXISTS avakhada"))
+            conn.execute(text("ALTER TABLE kundli_records DROP COLUMN IF EXISTS dasha"))
+    except Exception:
+        # Non-fatal: if it fails, app can still run.
+        pass
+
+
+_migrate_legacy_json_to_normalized_if_present()
+_drop_legacy_json_columns_best_effort()
 
 app = FastAPI()
 
@@ -95,11 +277,85 @@ def generate_kundli_api(request: KundliRequest, db: Session = Depends(database.g
             dob=request.dob,
             tob=request.tob,
             place=request.place,
-            panchang=results['panchang'],
-            planets=results['planets'],
-            avakhada=results.get('avakhada'),
-            dasha=results['dasha']
+            lat=float(lat) if lat is not None else None,
+            lon=float(lon) if lon is not None else None,
         )
+
+        # Normalized one-to-one rows
+        p = results.get("panchang") or {}
+        new_record.panchang_row = models.KundliPanchang(
+            lagna=p.get("lagna"),
+            lagna_rashi=p.get("lagna_rashi"),
+            lat=p.get("lat"),
+            lon=p.get("lon"),
+            tz=p.get("tz"),
+            tithi=p.get("tithi"),
+            tithi_num=p.get("tithi_num"),
+            karan=p.get("karan"),
+            yog=p.get("yog"),
+            nakshatra=p.get("nakshatra"),
+            sunrise=p.get("sunrise"),
+            sunset=p.get("sunset"),
+            ayanamsha=p.get("ayanamsha"),
+        )
+
+        a = results.get("avakhada") or {}
+        new_record.avakhada_row = models.KundliAvakhada(
+            varna=a.get("varna"),
+            vashya=a.get("vashya"),
+            yoni=a.get("yoni"),
+            yoni_english=a.get("yoni_english"),
+            gan=a.get("gan"),
+            nadi=a.get("nadi"),
+            sign=a.get("sign"),
+            sign_lord=a.get("sign_lord"),
+            nakshatra_charan=a.get("nakshatra_charan"),
+            yog=a.get("yog"),
+            karan=a.get("karan"),
+            tithi=a.get("tithi"),
+            paya=a.get("paya"),
+            paya_nakshatra=a.get("paya_nakshatra"),
+            paya_moon_house=a.get("paya_moon_house"),
+            moon_house=a.get("moon_house"),
+            name_alphabet=a.get("name_alphabet"),
+        )
+
+        # Normalized one-to-many rows
+        new_record.planet_rows = []
+        for pl in results.get("planets") or []:
+            new_record.planet_rows.append(
+                models.KundliPlanet(
+                    name=pl.get("name"),
+                    lon=pl.get("lon"),
+                    deg=pl.get("deg"),
+                    rashi=pl.get("rashi"),
+                    sign=pl.get("sign"),
+                    sign_lord=pl.get("sign_lord"),
+                    nakshatra=pl.get("nakshatra"),
+                    nakshatra_pada=pl.get("nakshatra_pada"),
+                    nakshatra_lord=pl.get("nakshatra_lord"),
+                    house=pl.get("house"),
+                    retro=pl.get("retro"),
+                    combust=pl.get("combust"),
+                )
+            )
+
+        new_record.dasha_rows = []
+        for i, row in enumerate(results.get("dasha") or []):
+            new_record.dasha_rows.append(
+                models.KundliDashaPeriod(
+                    level="mahadasha",
+                    seq=i,
+                    planet=row.get("planet"),
+                    start_date=row.get("start_date"),
+                    end_date=row.get("end_date"),
+                    start_label=row.get("start_label"),
+                    years=row.get("years"),
+                    total_years=row.get("total_years"),
+                    offset_years=row.get("offset_years"),
+                )
+            )
+
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
@@ -153,6 +409,82 @@ def get_history(limit: int = 25, db: Session = Depends(database.get_db)):
 
     payload = []
     for r in records:
+        p = r.panchang_row
+        a = r.avakhada_row
+
+        panchang = {
+            "lagna": getattr(p, "lagna", None),
+            "lagna_rashi": getattr(p, "lagna_rashi", None),
+            "lat": getattr(p, "lat", None),
+            "lon": getattr(p, "lon", None),
+            "tz": getattr(p, "tz", None),
+            "tithi": getattr(p, "tithi", None),
+            "tithi_num": getattr(p, "tithi_num", None),
+            "karan": getattr(p, "karan", None),
+            "yog": getattr(p, "yog", None),
+            "nakshatra": getattr(p, "nakshatra", None),
+            "sunrise": getattr(p, "sunrise", None),
+            "sunset": getattr(p, "sunset", None),
+            "ayanamsha": getattr(p, "ayanamsha", None),
+        }
+
+        planets = []
+        for pl in getattr(r, "planet_rows", []) or []:
+            planets.append(
+                {
+                    "name": pl.name,
+                    "lon": pl.lon,
+                    "deg": pl.deg,
+                    "rashi": pl.rashi,
+                    "sign": pl.sign,
+                    "sign_lord": pl.sign_lord,
+                    "nakshatra": pl.nakshatra,
+                    "nakshatra_pada": pl.nakshatra_pada,
+                    "nakshatra_lord": pl.nakshatra_lord,
+                    "house": pl.house,
+                    "retro": pl.retro,
+                    "combust": pl.combust,
+                }
+            )
+
+        avakhada = None
+        if a is not None:
+            avakhada = {
+                "varna": a.varna,
+                "vashya": a.vashya,
+                "yoni": a.yoni,
+                "yoni_english": a.yoni_english,
+                "gan": a.gan,
+                "nadi": a.nadi,
+                "sign": a.sign,
+                "sign_lord": a.sign_lord,
+                "nakshatra_charan": a.nakshatra_charan,
+                "yog": a.yog,
+                "karan": a.karan,
+                "tithi": a.tithi,
+                "paya": a.paya,
+                "paya_nakshatra": a.paya_nakshatra,
+                "paya_moon_house": a.paya_moon_house,
+                "moon_house": a.moon_house,
+                "name_alphabet": a.name_alphabet,
+            }
+
+        dasha = []
+        for d in getattr(r, "dasha_rows", []) or []:
+            if getattr(d, "level", "mahadasha") != "mahadasha":
+                continue
+            dasha.append(
+                {
+                    "planet": d.planet,
+                    "start_date": d.start_date,
+                    "end_date": d.end_date,
+                    "start_label": d.start_label,
+                    "years": d.years,
+                    "total_years": d.total_years,
+                    "offset_years": d.offset_years,
+                }
+            )
+
         payload.append(
             {
                 "id": r.id,
@@ -162,10 +494,10 @@ def get_history(limit: int = 25, db: Session = Depends(database.get_db)):
                 "tob": r.tob,
                 "place": r.place,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
-                "panchang": r.panchang,
-                "planets": r.planets,
-                "avakhada": getattr(r, "avakhada", None),
-                "dasha": r.dasha,
+                "panchang": panchang,
+                "planets": planets,
+                "avakhada": avakhada,
+                "dasha": dasha,
             }
         )
 
@@ -192,7 +524,7 @@ def delete_history_item(record_id: int, db: Session = Depends(database.get_db)):
 @app.post("/dasha/subperiods")
 def get_dasha_subperiods(req: DashaSubperiodsRequest):
     try:
-        return astrology.calc_vimshottari_subperiods(
+        return calc_vimshottari_subperiods(
             req.parent_planet,
             req.start_date,
             req.end_date,

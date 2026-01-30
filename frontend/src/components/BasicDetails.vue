@@ -27,9 +27,9 @@
           </table>
         </div>
 
-        <div class="bg-white p-6 rounded-xl shadow-md border-t-4 border-blue-500">
+        <div class="bg-white p-6 rounded-xl shadow-md border-t-4 border-indigo-500">
           <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <span>☸️</span> Panchang Details
+            <span>🕉️</span> Panchang Details
           </h3>
           <table class="w-full text-sm">
             <tr v-for="(val, label) in panchangDetailsMap" :key="label" class="border-b last:border-0">
@@ -40,7 +40,7 @@
         </div>
       </div>
 
-      <div class="bg-white p-6 rounded-xl shadow-md border-t-4 border-orange-500 h-fit">
+      <div class="bg-white p-6 rounded-xl shadow-md border-t-4 border-indigo-500 h-fit">
         <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
           <span>✨</span> Avakhada Details
         </h3>
@@ -120,6 +120,9 @@ const avakhadaRight = computed(() => ({
   "Yog": a.value.yog || '—',
   "Karan": a.value.karan || '—',
   "Tithi": a.value.tithi || '—',
-  "Paya": a.value.paya || '—'
+  "Paya (Nakshatra)": a.value.paya_nakshatra || a.value.paya || '—',
+  "Paya (Moon House)": a.value.paya_moon_house
+    ? `${a.value.paya_moon_house}${a.value.moon_house ? ` (House ${a.value.moon_house})` : ''}`
+    : '—'
 }));
 </script>

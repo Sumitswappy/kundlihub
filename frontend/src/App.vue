@@ -89,8 +89,8 @@ const navamsaLagnaRashi = computed(() => {
 <template>
   <div class="min-h-screen bg-gray-50 py-10">
     <header class="text-center mb-10">
-      <h1 class="text-4xl font-bold text-indigo-900">Vedic Kundli Hub</h1>
-      <p class="text-gray-600">Precision Astrological Calculations</p>
+      <h1 class="text-4xl font-bold text-indigo-900">Kundli Hub</h1>
+      <p class="text-gray-600">Kundli Maker Website</p>
     </header>
 
     <main class="container mx-auto px-4">

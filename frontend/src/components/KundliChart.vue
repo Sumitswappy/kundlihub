@@ -1,7 +1,8 @@
 <template>
-  <div class="flex justify-center p-4 bg-orange-50 rounded-xl shadow-inner">
+  <div class="flex justify-center p-4 bg-[#F7D577]/50 rounded-xl shadow-[0_0_20px_5px_rgba(255,165,0,0.3)]">
+ 
     <svg width="400" height="400" viewBox="0 0 300 300" class="drop-shadow-lg">
-      <rect width="300" height="300" fill="white" stroke="#c05621" stroke-width="4" />
+      <rect width="300" height="300" fill="#FAE8B6" stroke="#c05621" stroke-width="4" />
 
       <line x1="0" y1="0" x2="300" y2="300" stroke="#c05621" stroke-width="2" />
       <line x1="300" y1="0" x2="0" y2="300" stroke="#c05621" stroke-width="2" />
@@ -32,11 +33,12 @@
         >
           <tspan
             v-for="(p, pIdx) in getPlanetsInHouse(index + 1)"
-            :key="p"
+            :key="`${p.name}-${pIdx}`"
             :x="house.pX"
             :dy="pIdx === 0 ? calculateVerticalCentering(index + 1) : '1.2em'"
+            :style="planetTextStyle(p.name)"
           >
-            {{ p }}
+            {{ p.label }}
           </tspan>
         </text>
       </g>
@@ -97,8 +99,40 @@ const getPlanetsInHouse = (houseNum) => {
     .map((p) => {
       const code = abbr[p?.name] || String(p?.name || '').substring(0, 2);
       const deg = Number.isFinite(Number(p?.deg)) ? Number(p.deg) : (Number(p?.lon || 0) % 30);
-      return `${code}-${deg.toFixed(1)}°`;
+      return {
+        name: String(p?.name || ''),
+        label: `${code}-${deg.toFixed(1)}°`,
+      };
     });
+};
+
+const PLANET_COLORS = {
+  Sun: '#F97316', // Orange
+  Moon: '#7A7A7A', // Grey
+  Mars: '#DC2626', // Red
+  Mercury: '#16A34A', // Green
+  Jupiter: '#741EF7', // Violet
+  Venus: '#EC4899', // Pink
+  Saturn: '#111827', // Black
+  Rahu: '#00B0FF', // Electric Blue
+  Ketu: '#8B4513', // Brown
+};
+
+const planetTextStyle = (planetName) => {
+  const name = String(planetName || '');
+  const fill = PLANET_COLORS[name] || '#2d3748';
+
+  // // Improve readability for light colors on a light chart background.
+  // if (name === 'Moon' || name === 'Jupiter') {
+  //   return {
+  //     fill,
+  //     stroke: '#2d3748',
+  //     strokeWidth: '0.6px',
+  //     paintOrder: 'stroke',
+  //   };
+  // }
+
+  return { fill };
 };
 
 const calculateVerticalCentering = (houseNum) => {

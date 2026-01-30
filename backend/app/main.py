@@ -4,11 +4,15 @@ from sqlalchemy import inspect, text
 from fastapi.middleware.cors import CORSMiddleware
 from . import models, database, astrology
 from .dasha_logic import calc_vimshottari_subperiods
+from .dosha_logic import calculate_doshas
+from .horoscope_logic import calculate_daily_horoscope
+from .sadesati_logic import calculate_sade_sati
 from pydantic import BaseModel
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 import json
+from datetime import date
 
 # Create DB tables
 models.Base.metadata.create_all(bind=database.engine)
@@ -232,6 +236,14 @@ class DashaSubperiodsRequest(BaseModel):
     offset_years: float | None = 0.0
 
 
+class DailyHoroscopeRequest(KundliRequest):
+    for_date: str | None = None  # YYYY-MM-DD (optional)
+
+
+class SadeSatiRequest(KundliRequest):
+    for_date: str | None = None  # YYYY-MM-DD (optional)
+
+
 def geocode_place(place: str) -> tuple[float, float] | None:
     # Nominatim usage policy asks for a valid User-Agent identifying your app.
     url = f"https://nominatim.openstreetmap.org/search?format=json&limit=1&q={quote(place)}"
@@ -244,6 +256,73 @@ def geocode_place(place: str) -> tuple[float, float] | None:
         return float(data[0]["lat"]), float(data[0]["lon"])
     except Exception:
         return None
+
+
+def _resolve_coords(request: KundliRequest) -> tuple[float, float]:
+    lat = request.lat
+    lon = request.lon
+
+    if lat is None or lon is None:
+        coords = geocode_place(request.place)
+        if not coords:
+            raise HTTPException(status_code=400, detail="Could not geocode place of birth")
+        return coords
+
+    # Heuristic: InputForm defaults to Kolkata; override if user entered a different place.
+    if request.place and abs(lat - 22.57) < 0.05 and abs(lon - 88.36) < 0.05:
+        coords = geocode_place(request.place)
+        if coords:
+            return coords
+
+    return float(lat), float(lon)
+
+
+@app.post("/horoscope/daily")
+def daily_horoscope_api(request: DailyHoroscopeRequest):
+    """Compute a simple daily horoscope plus remedies.
+
+    Uses natal Moon sign and today's Moon transit as the primary signal.
+    """
+    try:
+        lat, lon = _resolve_coords(request)
+        kundli = astrology.calculate_complete_kundli(request.dob, request.tob, lat, lon)
+
+        if request.for_date:
+            try:
+                for_dt = date.fromisoformat(str(request.for_date))
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid for_date; expected YYYY-MM-DD")
+        else:
+            # Server-local date is okay because astrology uses a fixed IST offset.
+            for_dt = date.today()
+
+        return calculate_daily_horoscope(kundli=kundli, lat=lat, lon=lon, for_date=for_dt)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sade-sati")
+def sade_sati_api(request: SadeSatiRequest):
+    """Compute Shani Sade Sati phases + remedies based on natal Moon sign."""
+    try:
+        lat, lon = _resolve_coords(request)
+        kundli = astrology.calculate_complete_kundli(request.dob, request.tob, lat, lon)
+
+        if request.for_date:
+            try:
+                for_dt = date.fromisoformat(str(request.for_date))
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid for_date; expected YYYY-MM-DD")
+        else:
+            for_dt = date.today()
+
+        return calculate_sade_sati(kundli=kundli, for_date=for_dt)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/generate")
 def generate_kundli_api(request: KundliRequest, db: Session = Depends(database.get_db)):
@@ -469,6 +548,8 @@ def get_history(limit: int = 25, db: Session = Depends(database.get_db)):
                 "name_alphabet": a.name_alphabet,
             }
 
+            doshas = calculate_doshas(planets=planets, avakhada=avakhada)
+
         dasha = []
         for d in getattr(r, "dasha_rows", []) or []:
             if getattr(d, "level", "mahadasha") != "mahadasha":
@@ -497,6 +578,7 @@ def get_history(limit: int = 25, db: Session = Depends(database.get_db)):
                 "panchang": panchang,
                 "planets": planets,
                 "avakhada": avakhada,
+                "doshas": doshas,
                 "dasha": dasha,
             }
         )

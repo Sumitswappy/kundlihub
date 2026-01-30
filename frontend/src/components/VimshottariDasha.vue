@@ -3,6 +3,9 @@
     <div class="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
       <div>
         <h4 class="font-bold text-gray-800">Vimshottari Dasha</h4>
+        <div v-if="personName" class="text-xs text-gray-500 mt-0.5">
+          For: <span class="font-semibold text-gray-700">{{ personName }}</span>
+        </div>
         <div class="text-xs text-gray-500">
           <span v-if="activeTab === 'maha'">Mahadasha</span>
           <span v-else-if="activeTab === 'antar'">Antardasha • {{ selectedMaha?.planet || '—' }}</span>
@@ -114,6 +117,7 @@ import axios from 'axios';
 
 const props = defineProps({
   dasha: { type: Array, default: () => [] },
+  personName: { type: String, default: '' },
 });
 
 const API_BASE = 'http://localhost:8000';

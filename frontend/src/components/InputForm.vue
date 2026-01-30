@@ -227,6 +227,7 @@ const viewHistoryItem = async (item) => {
         panchang: item.panchang,
         planets: item.planets,
         avakhada: item.avakhada,
+        doshas: item.doshas,
         dasha: item.dasha,
       };
       emit('submit-success', { kundli, request });
@@ -264,6 +265,6 @@ onMounted(fetchHistory);
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #ba25fe; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #c195fa; }
 </style>

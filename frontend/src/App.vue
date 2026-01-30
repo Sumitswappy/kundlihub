@@ -5,21 +5,29 @@ import KundliChart from './components/KundliChart.vue'
 import PlanetaryPositions from './components/PlanetaryPositions.vue'
 import VimshottariDasha from './components/VimshottariDasha.vue'
 import BasicDetails from './components/BasicDetails.vue'
+import Dosha from './components/Dosha.vue'
+import DailyHoroscope from './components/DailyHoroscope.vue'
+import SadeSati from './components/SadeSati.vue'
 
 // Holds { kundli, request }
 const viewModel = ref(null)
 
-const activeTab = ref('chart') // 'chart' | 'positions' | 'dasha' | 'details'
+const activeTab = ref('details') // 'details' | 'chart' | 'dasha' | 'horoscope' | 'sadesati' | 'dosha'
+
+const personName = computed(() => {
+  const req = viewModel.value?.request
+  return req?.full_name || req?.fullName || req?.name || ''
+})
 
 // Function to handle the data emitted from the InputForm
 const handleKundliGenerated = (data) => {
   viewModel.value = data
-  activeTab.value = 'chart'
+  activeTab.value = 'details'
 }
 
 const reset = () => {
   viewModel.value = null
-  activeTab.value = 'chart'
+  activeTab.value = 'details'
 }
 
 const lagnaRashiValue = computed(() => {
@@ -87,7 +95,7 @@ const navamsaLagnaRashi = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 py-10">
+  <div class="min-h-screen bg-purple-50 py-10">
     <header class="text-center mb-10">
       <h1 class="text-4xl font-bold text-indigo-900">Kundli Hub</h1>
       <p class="text-gray-600">Kundli Maker Website</p>
@@ -112,83 +120,123 @@ const navamsaLagnaRashi = computed(() => {
           </div>
 
           <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div class="flex">
+            <div class="flex flex-wrap">
+               <button
+                type="button"
+                @click="activeTab = 'details'"
+                class="flex-1 min-w-[160px] px-4 py-3 text-sm font-semibold transition"
+                :class="activeTab === 'details' ? 'bg-indigo-50 text-indigo-800' : 'bg-white text-gray-600 hover:bg-gray-50'"
+              >
+                Basic Details
+              </button>
               <button
                 type="button"
                 @click="activeTab = 'chart'"
-                class="flex-1 px-4 py-3 text-sm font-semibold transition"
+                class="flex-1 min-w-[160px] px-4 py-3 text-sm font-semibold transition"
                 :class="activeTab === 'chart' ? 'bg-indigo-50 text-indigo-800' : 'bg-white text-gray-600 hover:bg-gray-50'"
               >
                 Lagna Chart
               </button>
               <button
                 type="button"
-                @click="activeTab = 'positions'"
-                class="flex-1 px-4 py-3 text-sm font-semibold transition"
-                :class="activeTab === 'positions' ? 'bg-indigo-50 text-indigo-800' : 'bg-white text-gray-600 hover:bg-gray-50'"
-              >
-                Planetary Positions
-              </button>
-              <button
-                type="button"
                 @click="activeTab = 'dasha'"
-                class="flex-1 px-4 py-3 text-sm font-semibold transition"
+                class="flex-1 min-w-[160px] px-4 py-3 text-sm font-semibold transition"
                 :class="activeTab === 'dasha' ? 'bg-indigo-50 text-indigo-800' : 'bg-white text-gray-600 hover:bg-gray-50'"
               >
                 Vimshottari Dasha
               </button>
+
               <button
                 type="button"
-                @click="activeTab = 'details'"
-                class="flex-1 px-4 py-3 text-sm font-semibold transition"
-                :class="activeTab === 'details' ? 'bg-indigo-50 text-indigo-800' : 'bg-white text-gray-600 hover:bg-gray-50'"
+                @click="activeTab = 'horoscope'"
+                class="flex-1 min-w-[160px] px-4 py-3 text-sm font-semibold transition"
+                :class="activeTab === 'horoscope' ? 'bg-indigo-50 text-indigo-800' : 'bg-white text-gray-600 hover:bg-gray-50'"
               >
-                Basic Details
+                Daily Horoscope
+              </button>
+
+              <button
+                type="button"
+                @click="activeTab = 'sadesati'"
+                class="flex-1 min-w-[160px] px-4 py-3 text-sm font-semibold transition"
+                :class="activeTab === 'sadesati' ? 'bg-indigo-50 text-indigo-800' : 'bg-white text-gray-600 hover:bg-gray-50'"
+              >
+                Sade Sati
+              </button>
+             
+
+              <button
+                type="button"
+                @click="activeTab = 'dosha'"
+                class="flex-1 min-w-[160px] px-4 py-3 text-sm font-semibold transition"
+                :class="activeTab === 'dosha' ? 'bg-indigo-50 text-indigo-800' : 'bg-white text-gray-600 hover:bg-gray-50'"
+              >
+                Dosha
               </button>
             </div>
           </div>
 
-          <div v-if="activeTab === 'chart'" class="bg-white p-6 rounded-xl shadow-md">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-              <div>
-                <h3 class="text-xl font-bold mb-4 text-center">Lagna Chart</h3>
-                <div class="flex justify-center">
-                  <KundliChart
-                    :planets="viewModel.kundli?.planets"
-                    :lagnaRashi="lagnaRashiValue"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <h3 class="text-xl font-bold mb-4 text-center">Navamsa Chart</h3>
-                <div class="flex justify-center">
-                  <KundliChart
-                    :planets="navamsaPlanets"
-                    :lagnaRashi="navamsaLagnaRashi"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-else-if="activeTab === 'positions'" class="bg-white p-6 rounded-xl shadow-md">
-            <PlanetaryPositions
-              :planets="viewModel.kundli?.planets"
-              :lagnaRashi="viewModel.kundli?.panchang?.lagna_rashi ?? viewModel.kundli?.panchang?.lagnaRashi"
-            />
-          </div>
-
-          <div v-else-if="activeTab === 'dasha'" class="bg-white p-6 rounded-xl shadow-md">
-            <VimshottariDasha :dasha="viewModel.kundli?.dasha" />
-          </div>
-
-          <div v-else class="bg-white p-6 rounded-xl shadow-md">
+          <div v-if="activeTab === 'details'" class="bg-white p-6 rounded-xl shadow-md">
             <BasicDetails
               :kundli="viewModel.kundli"
               :request="viewModel.request"
               :showHeader="false"
             />
+          </div>
+
+          <div v-else-if="activeTab === 'chart'" class="bg-white p-6 rounded-xl shadow-md">
+            <div class="space-y-8">
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                <div>
+                  <h3 class="text-xl font-bold mb-4 text-center">Lagna Chart</h3>
+                  <div class="flex justify-center">
+                    <KundliChart
+                      :planets="viewModel.kundli?.planets"
+                      :lagnaRashi="lagnaRashiValue"
+                      :personName="personName"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 class="text-xl font-bold mb-4 text-center">Navamsa Chart</h3>
+                  <div class="flex justify-center">
+                    <KundliChart
+                      :planets="navamsaPlanets"
+                      :lagnaRashi="navamsaLagnaRashi"
+                      :personName="personName"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <PlanetaryPositions
+                  :planets="viewModel.kundli?.planets"
+                  :lagnaRashi="viewModel.kundli?.panchang?.lagna_rashi ?? viewModel.kundli?.panchang?.lagnaRashi"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="activeTab === 'dasha'" class="bg-white p-6 rounded-xl shadow-md">
+            <VimshottariDasha :dasha="viewModel.kundli?.dasha" :personName="personName" />
+          </div>
+
+          <div v-else-if="activeTab === 'horoscope'" class="bg-white p-6 rounded-xl shadow-md">
+            <DailyHoroscope :request="viewModel.request" :personName="personName" />
+          </div>
+
+          <div v-else-if="activeTab === 'sadesati'" class="bg-white p-6 rounded-xl shadow-md">
+            <SadeSati :request="viewModel.request" :personName="personName" />
+          </div>
+
+          <div v-else-if="activeTab === 'dosha'" class="bg-white p-6 rounded-xl shadow-md">
+            <Dosha :doshas="viewModel.kundli?.doshas" :personName="personName" />
+          </div>
+
+          <div v-else class="bg-white p-6 rounded-xl shadow-md">
+            <BasicDetails :kundli="viewModel.kundli" :request="viewModel.request" :showHeader="false" />
           </div>
         </div>
       </section>
@@ -208,4 +256,8 @@ body {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #ba25fe; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #c195fa; }
 </style>

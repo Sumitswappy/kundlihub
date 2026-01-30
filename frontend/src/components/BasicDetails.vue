@@ -106,6 +106,7 @@ const panchangDetailsMap = computed(() => ({
 }));
 
 const avakhadaLeft = computed(() => ({
+  "Name Alphabet": a.value.name_alphabet || a.value.nameAlphabet || a.value.naam_akshar || a.value.name_akshar || '—',
   "Varna": a.value.varna || '—',
   "Vashya": a.value.vashya || '—',
   "Yoni": a.value.yoni || '—',

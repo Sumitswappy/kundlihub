@@ -22,6 +22,7 @@ from .panchang_logic import (
     _vashya_from_rashi,
     _yoga_from_sun_moon,
 )
+from .dosha_logic import calculate_doshas
 from .utils import _angle_sep_deg
 
 def calculate_complete_kundli(dob, tob, lat, lon):
@@ -57,7 +58,9 @@ def calculate_complete_kundli(dob, tob, lat, lon):
     # 2. Planetary Positions
     # Swiss Ephemeris planet indices: 0..9 (Su..Pl), 10 mean node, 11 true node.
     # For Vedic-style charts we include nodes and (optionally) outer planets.
-    rahu_id = getattr(swe, "TRUE_NODE", 11)
+    # Many Vedic calculators use the mean node for Rahu/Ketu.
+    # Using MEAN_NODE tends to match common online "Kalsarpa" checks better.
+    rahu_id = getattr(swe, "MEAN_NODE", 10)
     planets_map = {
         "Sun": 0,
         "Moon": 1,
@@ -226,6 +229,8 @@ def calculate_complete_kundli(dob, tob, lat, lon):
     # Vimshottari Mahadasha list (starts from Birth, first entry is partial remainder)
     dasha = _calc_vimshottari_mahadasha(dob, tob, moon_lon)
 
+    doshas = calculate_doshas(planets=planet_data, avakhada=avakhada)
+
     return {
         "planets": planet_data,
         "panchang": {
@@ -244,5 +249,6 @@ def calculate_complete_kundli(dob, tob, lat, lon):
             "ayanamsha": ayanamsha,
         },
         "avakhada": avakhada,
+        "doshas": doshas,
         "dasha": dasha,
     }

@@ -1,8 +1,10 @@
 <template>
-  <div class="flex justify-center p-4 bg-[#F7D577]/50 rounded-xl shadow-[0_0_20px_5px_rgba(255,165,0,0.3)]">
- 
+  <div class="flex flex-col items-center justify-center p-4 bg-[#F7D577]/50 rounded-xl shadow-[0_0_20px_5px_rgba(255,165,0,0.3)]">
+    <div v-if="personName" class="w-full text-center text-sm font-semibold text-gray-700 mb-2">
+      For: {{ personName }}
+    </div>
     <svg width="400" height="400" viewBox="0 0 300 300" class="drop-shadow-lg">
-      <rect width="300" height="300" fill="#FAE8B6" stroke="#c05621" stroke-width="4" />
+      <rect width="300" height="300" fill="#FFF3D1" stroke="#c05621" stroke-width="4" />
 
       <line x1="0" y1="0" x2="300" y2="300" stroke="#c05621" stroke-width="2" />
       <line x1="300" y1="0" x2="0" y2="300" stroke="#c05621" stroke-width="2" />
@@ -50,6 +52,7 @@
 const props = defineProps({
   planets: { type: Array, default: () => [] },
   lagnaRashi: { type: [String, Number], default: null },
+  personName: { type: String, default: '' },
 });
 
 // Coordinates tuned for your North Indian chart layout

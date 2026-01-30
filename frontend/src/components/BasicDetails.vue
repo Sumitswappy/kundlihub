@@ -22,7 +22,7 @@
           <table class="w-full text-sm">
             <tr v-for="(val, label) in birthDetailsMap" :key="label" class="border-b last:border-0">
               <th class="py-3 text-gray-500 font-medium w-1/3">{{ label }}</th>
-              <td class="py-3 text-gray-900 font-semibold text-right">{{ val }}</td>
+              <td class="py-3 text-gray-900 font-semibold text-left sm:text-right break-words">{{ val }}</td>
             </tr>
           </table>
         </div>
@@ -34,7 +34,7 @@
           <table class="w-full text-sm">
             <tr v-for="(val, label) in panchangDetailsMap" :key="label" class="border-b last:border-0">
               <th class="py-3 text-gray-500 font-medium">{{ label }}</th>
-              <td class="py-3 text-gray-900 font-semibold text-right">{{ val }}</td>
+              <td class="py-3 text-gray-900 font-semibold text-left sm:text-right break-words">{{ val }}</td>
             </tr>
           </table>
         </div>
@@ -48,13 +48,13 @@
           <table class="w-full text-sm">
             <tr v-for="(val, label) in avakhadaLeft" :key="label" class="border-b last:border-0">
               <th class="py-3 text-gray-500 font-medium text-left">{{ label }}</th>
-              <td class="py-3 text-gray-900 font-semibold text-right">{{ val }}</td>
+              <td class="py-3 text-gray-900 font-semibold text-left sm:text-right break-words">{{ val }}</td>
             </tr>
           </table>
           <table class="w-full text-sm">
             <tr v-for="(val, label) in avakhadaRight" :key="label" class="border-b last:border-0 md:border-b">
               <th class="py-3 text-gray-500 font-medium text-left">{{ label }}</th>
-              <td class="py-3 text-gray-900 font-semibold text-right">{{ val }}</td>
+              <td class="py-3 text-gray-900 font-semibold text-left sm:text-right break-words">{{ val }}</td>
             </tr>
           </table>
         </div>

@@ -95,9 +95,9 @@ const navamsaLagnaRashi = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-purple-50 py-10">
-    <header class="text-center mb-10">
-      <h1 class="text-4xl font-bold text-indigo-900">Kundli Hub</h1>
+  <div class="min-h-screen bg-purple-50 py-6 sm:py-10">
+    <header class="text-center mb-6 sm:mb-10">
+      <h1 class="text-3xl sm:text-4xl font-bold text-indigo-900">Kundli Hub</h1>
       <p class="text-gray-600">Kundli Maker Website</p>
     </header>
 
@@ -108,8 +108,8 @@ const navamsaLagnaRashi = computed(() => {
 
       <section v-else class="space-y-10 animate-fade-in">
         <div class="max-w-6xl mx-auto space-y-6">
-          <div class="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-            <h2 class="text-2xl font-bold text-indigo-900">Kundli</h2>
+          <div class="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <h2 class="text-2xl font-bold text-indigo-900">Kundli Hub</h2>
             <button
               type="button"
               @click="reset"
@@ -119,8 +119,9 @@ const navamsaLagnaRashi = computed(() => {
             </button>
           </div>
 
-          <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div class="flex flex-wrap">
+          <div class="sticky top-2 z-30 sm:static">
+            <div class="bg-white/95 backdrop-blur rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <div class="flex flex-wrap">
                <button
                 type="button"
                 @click="activeTab = 'details'"
@@ -173,10 +174,11 @@ const navamsaLagnaRashi = computed(() => {
               >
                 Dosha
               </button>
+              </div>
             </div>
           </div>
 
-          <div v-if="activeTab === 'details'" class="bg-white p-6 rounded-xl shadow-md">
+          <div v-if="activeTab === 'details'" class="bg-white p-4 sm:p-6 rounded-xl shadow-md">
             <BasicDetails
               :kundli="viewModel.kundli"
               :request="viewModel.request"
@@ -184,7 +186,7 @@ const navamsaLagnaRashi = computed(() => {
             />
           </div>
 
-          <div v-else-if="activeTab === 'chart'" class="bg-white p-6 rounded-xl shadow-md">
+          <div v-else-if="activeTab === 'chart'" class="bg-white p-4 sm:p-6 rounded-xl shadow-md">
             <div class="space-y-8">
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                 <div>
@@ -219,23 +221,23 @@ const navamsaLagnaRashi = computed(() => {
             </div>
           </div>
 
-          <div v-else-if="activeTab === 'dasha'" class="bg-white p-6 rounded-xl shadow-md">
+          <div v-else-if="activeTab === 'dasha'" class="bg-white p-4 sm:p-6 rounded-xl shadow-md">
             <VimshottariDasha :dasha="viewModel.kundli?.dasha" :personName="personName" />
           </div>
 
-          <div v-else-if="activeTab === 'horoscope'" class="bg-white p-6 rounded-xl shadow-md">
+          <div v-else-if="activeTab === 'horoscope'" class="bg-white p-4 sm:p-6 rounded-xl shadow-md">
             <DailyHoroscope :request="viewModel.request" :personName="personName" />
           </div>
 
-          <div v-else-if="activeTab === 'sadesati'" class="bg-white p-6 rounded-xl shadow-md">
+          <div v-else-if="activeTab === 'sadesati'" class="bg-white p-4 sm:p-6 rounded-xl shadow-md">
             <SadeSati :request="viewModel.request" :personName="personName" />
           </div>
 
-          <div v-else-if="activeTab === 'dosha'" class="bg-white p-6 rounded-xl shadow-md">
+          <div v-else-if="activeTab === 'dosha'" class="bg-white p-4 sm:p-6 rounded-xl shadow-md">
             <Dosha :doshas="viewModel.kundli?.doshas" :personName="personName" />
           </div>
 
-          <div v-else class="bg-white p-6 rounded-xl shadow-md">
+          <div v-else class="bg-white p-4 sm:p-6 rounded-xl shadow-md">
             <BasicDetails :kundli="viewModel.kundli" :request="viewModel.request" :showHeader="false" />
           </div>
         </div>

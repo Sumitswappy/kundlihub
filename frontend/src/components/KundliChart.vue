@@ -3,7 +3,7 @@
     <div v-if="personName" class="w-full text-center text-sm font-semibold text-gray-700 mb-2">
       For: {{ personName }}
     </div>
-    <svg width="400" height="400" viewBox="0 0 300 300" class="drop-shadow-lg">
+    <svg viewBox="0 0 300 300" preserveAspectRatio="xMidYMid meet" class="block w-full max-w-[420px] h-auto drop-shadow-lg">
       <rect width="300" height="300" fill="#FFF3D1" stroke="#c05621" stroke-width="4" />
 
       <line x1="0" y1="0" x2="300" y2="300" stroke="#c05621" stroke-width="2" />

@@ -24,5 +24,21 @@
 		font-family: var(--font-display);
 		letter-spacing: -0.01em;
 	}
+
+	body {
+		overflow-x: hidden;
+	}
+
+	img,
+	svg,
+	video,
+	canvas {
+		max-width: 100%;
+		height: auto;
+	}
+
+	.overflow-x-auto {
+		-webkit-overflow-scrolling: touch;
+	}
 }
 

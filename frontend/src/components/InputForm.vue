@@ -1,11 +1,11 @@
 <template>
-  <div class="max-w-[1400px] mx-auto mt-6 px-6 pb-10">
-    <div class="grid grid-cols-12 gap-8 lg:gap-12 items-start">
+  <div class="max-w-[1400px] mx-auto mt-4 sm:mt-6 px-4 sm:px-6 pb-10">
+    <div class="grid grid-cols-12 gap-6 sm:gap-8 lg:gap-12 items-start">
 
       <div class="col-span-12 lg:col-span-7 flex flex-col">
         <h3 class="text-xl font-bold text-gray-800 mb-4 ml-2">New Kundli</h3>
         
-        <div class="w-full max-w-3xl mx-auto flex flex-col p-8 md:p-10 bg-white shadow-2xl rounded-3xl border border-gray-100 h-auto">
+        <div class="w-full max-w-3xl mx-auto flex flex-col p-5 sm:p-8 md:p-10 bg-white shadow-2xl rounded-3xl border border-gray-100 h-auto">
           <div class="text-center mb-8">
             <h2 class="text-3xl font-extrabold text-gray-900">Kundli Details</h2>
             <p class="text-gray-500 mt-2 text-base">Enter birth details to generate your Vedic Chart</p>
@@ -67,7 +67,7 @@
 
       <div class="col-span-12 lg:col-span-5 flex flex-col lg:sticky lg:top-6">
         <h3 class="text-xl font-bold text-gray-800 mb-4 ml-2">Saved Kundli</h3>
-        <div class="flex flex-col p-6 bg-white shadow-xl rounded-3xl border border-gray-100 max-h-[750px] lg:max-h-[calc(100vh-140px)]">
+        <div class="flex flex-col p-5 sm:p-6 bg-white shadow-xl rounded-3xl border border-gray-100 max-h-none lg:max-h-[calc(100vh-140px)]">
           
           <div class="flex items-center justify-between mb-6">
             <h4 class="font-bold text-gray-700 text-lg">History</h4>
@@ -104,7 +104,7 @@
                   {{ item.dob }} • {{ item.tob }}
                 </div>
                 
-                <div class="flex items-center gap-3">
+                <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3">
                   <button @click="loadFromHistory(item)" 
                     class="flex-1 text-xs bg-white border border-gray-200 py-2 rounded-lg font-bold text-gray-700 hover:bg-gray-100 transition shadow-sm">
                     Edit

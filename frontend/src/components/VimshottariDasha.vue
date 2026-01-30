@@ -113,14 +113,12 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import axios from 'axios';
+import api from '../api/client';
 
 const props = defineProps({
   dasha: { type: Array, default: () => [] },
   personName: { type: String, default: '' },
 });
-
-const API_BASE = 'http://localhost:8000';
 
 const activeTab = ref('maha');
 const loading = ref(false);
@@ -229,7 +227,7 @@ const _fetchSubperiods = async (parentRow) => {
     parent_total_years: parentRow.totalYears,
     offset_years: parentRow.offsetYears,
   };
-  const res = await axios.post(`${API_BASE}/dasha/subperiods`, payload);
+  const res = await api.post('/dasha/subperiods', payload);
   return _mapSubRows(res.data);
 };
 

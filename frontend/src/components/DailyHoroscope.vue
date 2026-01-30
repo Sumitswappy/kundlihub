@@ -244,9 +244,7 @@
 
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import axios from 'axios'
-
-const API_BASE = 'http://localhost:8000'
+import api from '../api/client'
 
 const props = defineProps({
   request: { type: Object, default: null },
@@ -279,7 +277,7 @@ const fetchHoroscope = async () => {
   error.value = ''
   try {
     const payload = { ...props.request, for_date: forDate.value }
-    const res = await axios.post(`${API_BASE}/horoscope/daily`, payload)
+    const res = await api.post('/horoscope/daily', payload)
     data.value = res.data
   } catch (e) {
     const msg = e?.response?.data?.detail || e?.message || 'Failed to load daily horoscope.'

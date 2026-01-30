@@ -132,9 +132,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
-import axios from 'axios';
-
-const API_BASE = 'http://localhost:8000';
+import api from '../api/client';
 const emit = defineEmits(['submit-success']);
 
 // State
@@ -158,7 +156,7 @@ const filteredHistory = computed(() => {
 const fetchHistory = async () => {
   historyLoading.value = true;
   try {
-    const res = await axios.get(`${API_BASE}/history`);
+    const res = await api.get('/history');
     history.value = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
     console.error("History fetch error:", e);
@@ -170,7 +168,7 @@ const fetchHistory = async () => {
 const deleteHistoryItem = async (id) => {
   if (!confirm("Delete this record permanently?")) return;
   try {
-    await axios.delete(`${API_BASE}/history/${id}`);
+    await api.delete(`/history/${id}`);
     history.value = history.value.filter(item => item.id !== id);
     message.value = "Record deleted.";
     isError.value = false;
@@ -196,7 +194,7 @@ const generateFromHistory = async (item) => {
   loading.value = true;
   try {
     const payload = { ...item, lat: null, lon: null };
-    const res = await axios.post(`${API_BASE}/generate`, payload);
+    const res = await api.post('/generate', payload);
     emit('submit-success', { kundli: res.data, request: payload });
   } catch (e) {
     isError.value = true;
@@ -234,7 +232,7 @@ const viewHistoryItem = async (item) => {
       return;
     }
 
-    const res = await axios.post(`${API_BASE}/calculate`, request);
+    const res = await api.post('/calculate', request);
     emit('submit-success', { kundli: res.data, request });
   } catch (e) {
     isError.value = true;
@@ -248,7 +246,7 @@ const handleSubmit = async () => {
   loading.value = true;
   message.value = '';
   try {
-    const res = await axios.post(`${API_BASE}/generate`, form);
+    const res = await api.post('/generate', form);
     emit('submit-success', { kundli: res.data, request: { ...form } });
     await fetchHistory();
   } catch (e) {

@@ -189,9 +189,7 @@
 
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import axios from 'axios'
-
-const API_BASE = 'http://localhost:8000'
+import api from '../api/client'
 
 const props = defineProps({
   request: { type: Object, default: null },
@@ -229,7 +227,7 @@ const fetchSadeSati = async () => {
       ...props.request,
       for_date: forDate.value || null,
     }
-    const resp = await axios.post(`${API_BASE}/sade-sati`, payload)
+    const resp = await api.post('/sade-sati', payload)
     data.value = resp.data
   } catch (e) {
     error.value = e?.response?.data?.detail || e?.message || 'Failed to fetch Sade Sati data.'

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import api from '../api/client'
 
 const emit = defineEmits(['logged-in'])
@@ -12,8 +12,76 @@ const loading = ref(false)
 const error = ref('')
 const info = ref('')
 
+const OTP_TTL_SECONDS = 10 * 60
+const otpExpiresAt = ref(0) // epoch ms
+const nowMs = ref(Date.now())
+let intervalId = null
+
+const remainingSeconds = computed(() => {
+  const diffMs = otpExpiresAt.value - nowMs.value
+  return Math.max(0, Math.floor(diffMs / 1000))
+})
+
+const hasActiveTimer = computed(() => step.value === 'otp' && remainingSeconds.value > 0)
+const canResend = computed(() => step.value === 'otp' && !loading.value && remainingSeconds.value === 0)
+
+const formatRemaining = computed(() => {
+  const s = remainingSeconds.value
+  const mm = String(Math.floor(s / 60)).padStart(2, '0')
+  const ss = String(s % 60).padStart(2, '0')
+  return `${mm}:${ss}`
+})
+
+const saveTimer = () => {
+  try {
+    localStorage.setItem('otp_expires_at', String(otpExpiresAt.value || 0))
+  } catch (_) {
+    // ignore
+  }
+}
+
+const loadTimer = () => {
+  try {
+    const v = Number(localStorage.getItem('otp_expires_at') || 0)
+    if (Number.isFinite(v) && v > Date.now()) otpExpiresAt.value = v
+  } catch (_) {
+    // ignore
+  }
+}
+
+const clearTimer = () => {
+  otpExpiresAt.value = 0
+  try {
+    localStorage.removeItem('otp_expires_at')
+  } catch (_) {
+    // ignore
+  }
+}
+
+const startTimer = () => {
+  otpExpiresAt.value = Date.now() + OTP_TTL_SECONDS * 1000
+  saveTimer()
+}
+
+const ensureInterval = () => {
+  if (intervalId) return
+  intervalId = window.setInterval(() => {
+    nowMs.value = Date.now()
+    if (otpExpiresAt.value && otpExpiresAt.value <= nowMs.value) {
+      clearTimer()
+    }
+  }, 250)
+}
+
+const stopInterval = () => {
+  if (!intervalId) return
+  window.clearInterval(intervalId)
+  intervalId = null
+}
+
 const canSend = computed(() => email.value.trim().length > 3)
-const canVerify = computed(() => canSend.value && otp.value.trim().length >= 4)
+const otpExpired = computed(() => step.value === 'otp' && otpExpiresAt.value === 0)
+const canVerify = computed(() => canSend.value && otp.value.trim().length >= 4 && !otpExpired.value)
 
 const requestOtp = async () => {
   error.value = ''
@@ -22,6 +90,7 @@ const requestOtp = async () => {
   try {
     await api.post('/auth/request-otp', { email: email.value })
     step.value = 'otp'
+    startTimer()
     info.value = 'OTP sent. Please check your email.'
   } catch (e) {
     const msg = e?.response?.data?.detail || 'Failed to send OTP.'
@@ -40,6 +109,7 @@ const verifyOtp = async () => {
     const token = res?.data?.access_token
     if (!token) throw new Error('No token returned')
     localStorage.setItem('access_token', token)
+    clearTimer()
     emit('logged-in', token)
   } catch (e) {
     const msg = e?.response?.data?.detail || 'OTP verification failed.'
@@ -48,6 +118,15 @@ const verifyOtp = async () => {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  loadTimer()
+  ensureInterval()
+})
+
+onBeforeUnmount(() => {
+  stopInterval()
+})
 </script>
 
 <template>
@@ -91,8 +170,12 @@ const verifyOtp = async () => {
               placeholder="Enter code"
               autocomplete="one-time-code"
               class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none transition text-base"
-              :disabled="loading"
+              :disabled="loading || otpExpired"
             />
+
+            <p v-if="otpExpired" class="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3">
+              OTP expired. Please resend OTP.
+            </p>
           </div>
 
           <div class="pt-2 space-y-3">
@@ -120,16 +203,15 @@ const verifyOtp = async () => {
               v-if="step === 'otp'"
               type="button"
               class="w-full bg-white border border-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-50 transition disabled:opacity-50"
-              :disabled="loading"
+              :disabled="loading || !canResend"
               @click="requestOtp"
             >
-              Resend OTP
+              <span v-if="hasActiveTimer">Resend OTP in {{ formatRemaining }}</span>
+              <span v-else>Resend OTP</span>
             </button>
           </div>
 
-          <p class="text-xs text-gray-400">
-            Tip: In local dev, OTP can be echoed in backend logs when <b>DEV_OTP_ECHO=1</b>.
-          </p>
+         
         </div>
       </div>
     </main>

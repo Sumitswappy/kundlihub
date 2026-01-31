@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import OtpLogin from './components/OtpLogin.vue'
+import api from './api/client'
 import InputForm from './components/InputForm.vue'
 import KundliChart from './components/KundliChart.vue'
 import PlanetaryPositions from './components/PlanetaryPositions.vue'
@@ -13,14 +14,50 @@ import SadeSati from './components/SadeSati.vue'
 const token = ref(localStorage.getItem('access_token') || '')
 const isLoggedIn = computed(() => Boolean(token.value))
 
+const me = ref(null)
+const profileOpen = ref(false)
+
+const openProfile = () => {
+  profileOpen.value = true
+}
+
+const closeProfile = () => {
+  profileOpen.value = false
+}
+
+const fetchMe = async () => {
+  if (!isLoggedIn.value) {
+    me.value = null
+    return
+  }
+  try {
+    const res = await api.get('/auth/me')
+    me.value = res?.data || null
+  } catch (e) {
+    // Token invalid/expired or backend unavailable: force logout.
+    logout()
+  }
+}
+
 const onLoggedIn = (t) => {
   token.value = t
+  fetchMe()
 }
 
 const logout = () => {
   localStorage.removeItem('access_token')
   token.value = ''
+  me.value = null
+  profileOpen.value = false
 }
+
+watch(
+  () => token.value,
+  () => {
+    fetchMe()
+  },
+  { immediate: true }
+)
 
 // Holds { kundli, request }
 const viewModel = ref(null)
@@ -111,19 +148,80 @@ const navamsaLagnaRashi = computed(() => {
   <OtpLogin v-if="!isLoggedIn" @logged-in="onLoggedIn" />
 
   <div v-else class="min-h-screen bg-purple-50 py-6 sm:py-10">
-    <header class="text-center mb-6 sm:mb-10">
+    <header class="text-center mb-6 sm:mb-10 relative">
       <h1 class="text-3xl sm:text-4xl font-bold text-indigo-900">Kundli Hub</h1>
       <p class="text-gray-600">Kundli Maker Website</p>
-      <div class="mt-4">
+
+      <div class="absolute right-4 top-0 sm:right-10">
         <button
           type="button"
-          @click="logout"
-          class="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-semibold hover:bg-gray-50 transition"
+          @click="openProfile"
+          class="bg-white border border-gray-200 text-gray-700 w-10 h-10 rounded-full font-semibold hover:bg-gray-50 transition inline-flex items-center justify-center"
+          aria-label="Profile"
         >
-          Logout
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="h-5 w-5"
+          >
+            <path d="M20 21a8 8 0 0 0-16 0" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
         </button>
       </div>
     </header>
+
+    <div
+      v-if="profileOpen"
+      class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4"
+      @click.self="closeProfile"
+    >
+      <div class="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-100 p-6 sm:p-7">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-lg font-bold text-gray-900">Profile</h3>
+            <p class="text-sm text-gray-500 mt-0.5">Account details</p>
+          </div>
+          <button
+            type="button"
+            @click="closeProfile"
+            class="text-gray-400 hover:text-gray-700 transition px-2 py-1"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="mt-5 rounded-xl border border-gray-100 bg-gray-50 p-4">
+          <div class="text-xs font-bold text-gray-500 uppercase tracking-wider">Email</div>
+          <div class="mt-1 text-gray-900 font-semibold break-all">
+            {{ me?.email || '—' }}
+          </div>
+        </div>
+
+        <div class="mt-6 flex gap-3">
+          <button
+            type="button"
+            @click="closeProfile"
+            class="flex-1 bg-white border border-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-50 transition"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            @click="logout"
+            class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-xl shadow-sm transition"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+    </div>
 
     <main class="container mx-auto px-4">
       <section v-if="!viewModel" class="w-full">

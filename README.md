@@ -12,6 +12,8 @@ Full‑stack Vedic astrology app (FastAPI + Vue) to generate and explore a Kundl
 - **Vimshottari Dasha** with on‑demand sub‑period drill‑down
 - **Daily horoscope** (with simple remedies) for a selected date
 - **Shani Sade Sati** phases + remedies for a selected date
+- **Shani Sade Sati timeline (from birth)** stored in DB for fast table rendering
+- **OTP email login** (request OTP → verify OTP → get JWT)
 - **Saved history** persisted in a SQL database (list + view + delete)
 
 ## Project Structure
@@ -39,7 +41,11 @@ KundliHub/
 			App.vue
 			main.js
 			style.css
+			api/
+				client.js
 			components/
+				AppHeader.vue
+				AppFooter.vue
 				InputForm.vue
 				KundliChart.vue
 				PlanetaryPositions.vue
@@ -79,12 +85,19 @@ The backend Python dependencies are listed in [backend/requirements.txt](backend
 
 Backend API:
 - `POST /generate` → calculate kundli + save a new record
+- `POST /generate` returns `record_id` so the frontend can fetch stored timelines
 - `POST /calculate` → calculate kundli without saving (useful for “compute-only”)
 - `GET /history?limit=25` → fetch saved records (default 25, max 200)
 - `DELETE /history/{id}` → delete a record
+- `GET /history/{id}/sade-sati-periods` → get (or lazily compute + persist) the Sade Sati timeline from birth
 - `POST /dasha/subperiods` → fetch sub‑dashas on demand
 - `POST /horoscope/daily` → daily horoscope (+ remedies)
 - `POST /sade-sati` → sade sati phases (+ remedies)
+
+Auth:
+- `POST /auth/request-otp` → send login OTP to email
+- `POST /auth/verify-otp` → verify OTP and return JWT access token
+- `GET /auth/me` → return the logged-in user
 
 Interactive API docs (Swagger) are available at:
 - `http://127.0.0.1:8000/docs`
@@ -141,6 +154,30 @@ uvicorn app.main:app --reload
 
 Backend runs on `http://127.0.0.1:8000`.
 
+#### Backend environment variables
+
+Required:
+- `DATABASE_URL`
+- `JWT_SECRET` (required for JWT + OTP hashing)
+
+Email (Resend) for OTP delivery:
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+
+OTP behavior:
+- `OTP_TTL_MINUTES` (default: `10`)
+- `OTP_MAX_ATTEMPTS` (default: `5`) – max verify attempts per OTP
+- `OTP_MAX_REQUESTS_PER_EMAIL` (default: `10`) – rate limit for OTP generation per email
+- `OTP_REQUEST_WINDOW_MINUTES` (default: `1440`) – rate limit window (minutes)
+- `OTP_PEPPER` (optional) – dedicated pepper for OTP hashing (falls back to `JWT_SECRET`)
+
+Dev-only flags:
+- `DEV_OTP_ECHO=1` – print OTP in backend logs
+- `DEV_OTP_SKIP_SEND=1` – do not send emails (use with `DEV_OTP_ECHO`)
+
+Sade Sati timeline storage:
+- `SADE_SATI_TIMELINE_YEARS` (default: `120`) – how far from birth to compute and store the timeline
+
 ### 2) Frontend Setup
 
 ```bash
@@ -150,6 +187,11 @@ npm run dev
 ```
 
 Frontend runs on the URL shown by Vite (typically `http://localhost:5173`).
+
+#### Frontend API base URL
+
+The Axios client is configured in [frontend/src/api/client.js](frontend/src/api/client.js).
+By default it uses `http://localhost:8000`. You can switch it to use a Vite env var (recommended for deploys), e.g. `VITE_API_BASE_URL`.
 
 ## Deploying to Another System
 
@@ -194,4 +236,5 @@ Tip: a common improvement is to switch those constants to `import.meta.env.VITE_
 
 - The Vimshottari sub‑dashas are fetched on demand to keep the initial payload small.
 - Saved “View” uses stored JSON and does not create duplicate records.
+- The Sade Sati “from birth” table is persisted per saved record; first fetch may take longer, subsequent fetches are fast.
 

@@ -287,3 +287,72 @@ def calculate_sade_sati(*, kundli: dict[str, Any], for_date: Date | None = None)
         "remedies": remedies,
         "disclaimer": "Sade Sati calculation is approximate (daily sampling) and for guidance only.",
     }
+
+
+def build_sade_sati_timeline(*, kundli: dict[str, Any], start: Date, end: Date) -> dict[str, Any]:
+    """Build a full Sade Sati timeline between [start, end].
+
+    Returns a flat, tabular list of segments with:
+      - start, end (ISO)
+      - sign_name
+      - phase (rising|peak|setting)
+      - type (Rising|Peak|Setting)
+
+    This is intended for persistence so the frontend doesn't need to recompute.
+    """
+
+    planets = kundli.get("planets") or []
+    moon = next((p for p in planets if str(p.get("name")) == "Moon"), None)
+    natal_moon_rashi = int(moon.get("rashi")) if moon and moon.get("rashi") else None
+
+    if natal_moon_rashi is None:
+        return {
+            "ok": False,
+            "error": "Moon position missing in kundli",
+        }
+
+    start_d = start
+    end_d = end
+    if end_d < start_d:
+        start_d, end_d = end_d, start_d
+
+    target_rising = _mod12_1_based(natal_moon_rashi - 1)
+    target_peak = _mod12_1_based(natal_moon_rashi)
+    target_setting = _mod12_1_based(natal_moon_rashi + 1)
+
+    series = _saturn_rashi_series(start=start_d, end=end_d)
+    rising_segments = _segments_from_series(series=series, match_rashi=target_rising)
+    peak_segments = _segments_from_series(series=series, match_rashi=target_peak)
+    setting_segments = _segments_from_series(series=series, match_rashi=target_setting)
+
+    rows: list[dict[str, Any]] = []
+
+    def _add_rows(phase: str, label: str, segs: list[_Segment], target_rashi: int) -> None:
+        sign_name = _RASHI_NAMES.get(target_rashi, "—")
+        for seg in segs:
+            rows.append(
+                {
+                    "start": seg.start.isoformat(),
+                    "end": seg.end.isoformat(),
+                    "sign_name": sign_name,
+                    "phase": phase,
+                    "type": label,
+                }
+            )
+
+    _add_rows("rising", "Rising", rising_segments, target_rising)
+    _add_rows("peak", "Peak", peak_segments, target_peak)
+    _add_rows("setting", "Setting", setting_segments, target_setting)
+
+    rows.sort(key=lambda r: (r.get("start") or "", r.get("phase") or ""))
+
+    return {
+        "ok": True,
+        "range": {"start": start_d.isoformat(), "end": end_d.isoformat()},
+        "natal": {
+            "moon_rashi": natal_moon_rashi,
+            "moon_sign": _RASHI_NAMES.get(natal_moon_rashi, "—"),
+        },
+        "rows": rows,
+        "disclaimer": "Sade Sati calculation is approximate (daily sampling) and for guidance only.",
+    }

@@ -88,6 +88,45 @@ class KundliRecord(Base):
         cascade="all, delete-orphan",
     )
 
+    sadesati_rows = relationship(
+        "KundliSadeSatiPeriod",
+        back_populates="record",
+        order_by="KundliSadeSatiPeriod.seq",
+        cascade="all, delete-orphan",
+    )
+
+
+class KundliSadeSatiPeriod(Base):
+    __tablename__ = "kundli_sadesati_periods"
+
+    id = Column(Integer, primary_key=True)
+    record_id = Column(Integer, ForeignKey("kundli_records.id", ondelete="CASCADE"), index=True, nullable=False)
+
+    # Display fields (ISO dates as strings are sortable lexicographically).
+    start_date = Column(String, nullable=False)
+    end_date = Column(String, nullable=False)
+    sign_name = Column(String, nullable=True)
+
+    # rising | peak | setting
+    phase = Column(String, nullable=False)
+    # Rising | Peak | Setting (frontend-friendly)
+    phase_label = Column(String, nullable=True)
+
+    seq = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    record = relationship("KundliRecord", back_populates="sadesati_rows")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "record_id",
+            "start_date",
+            "end_date",
+            "phase",
+            name="uq_kundli_sadesati_periods_record_window_phase",
+        ),
+    )
+
 
 class KundliPanchang(Base):
     __tablename__ = "kundli_panchang"

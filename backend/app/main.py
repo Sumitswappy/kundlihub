@@ -9,12 +9,14 @@ from .dasha_logic import calc_vimshottari_subperiods
 from .dosha_logic import calculate_doshas
 from .horoscope_logic import calculate_daily_horoscope
 from .sadesati_logic import calculate_sade_sati
+from .sadesati_logic import build_sade_sati_timeline
 from pydantic import BaseModel
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 import json
 import os
+import calendar
 from datetime import date
 from datetime import datetime, timedelta, timezone
 
@@ -264,6 +266,22 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _add_years_safe(d: date, years: int) -> date:
+    """Add years while keeping month/day valid (Feb 29 -> Feb 28 for non-leap years)."""
+    y = int(d.year) + int(years)
+    last_day = calendar.monthrange(y, d.month)[1]
+    day = min(int(d.day), int(last_day))
+    return date(y, d.month, day)
+
+
+def _kundli_stub_from_record(record: models.KundliRecord) -> dict:
+    """Build the minimal kundli dict needed for Sade Sati (Moon rashi)."""
+    planets = []
+    for pl in getattr(record, "planet_rows", []) or []:
+        planets.append({"name": pl.name, "rashi": pl.rashi})
+    return {"planets": planets}
+
+
 def get_current_user(
     db: Session = Depends(database.get_db),
     creds: HTTPAuthorizationCredentials | None = Depends(security),
@@ -290,6 +308,34 @@ def request_otp(body: RequestOtpBody, db: Session = Depends(database.get_db)):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid email")
 
+    # Rate limit OTP generation per email.
+    # Default: max 10 OTP requests per 24 hours (configurable via env vars).
+    max_requests = int(os.getenv("OTP_MAX_REQUESTS_PER_EMAIL", "10"))
+    window_minutes = int(os.getenv("OTP_REQUEST_WINDOW_MINUTES", "1440"))
+    window_start = _utcnow() - timedelta(minutes=window_minutes)
+
+    recent_q = db.query(models.EmailOtp).filter(
+        models.EmailOtp.email == email,
+        models.EmailOtp.created_at >= window_start,
+    )
+    recent_count = int(recent_q.count())
+    if recent_count >= max_requests:
+        oldest = recent_q.order_by(models.EmailOtp.created_at.asc()).first()
+        retry_after_seconds = 0
+        if oldest is not None and oldest.created_at is not None:
+            oldest_created_at = oldest.created_at
+            if getattr(oldest_created_at, "tzinfo", None) is None:
+                oldest_created_at = oldest_created_at.replace(tzinfo=timezone.utc)
+            reset_at = oldest_created_at + timedelta(minutes=window_minutes)
+            retry_after_seconds = max(1, int((reset_at - _utcnow()).total_seconds()))
+
+        headers = {"Retry-After": str(retry_after_seconds)} if retry_after_seconds else None
+        raise HTTPException(
+            status_code=429,
+            detail="OTP request limit reached for this email. Please try again later.",
+            headers=headers,
+        )
+
     ttl_minutes = int(os.getenv("OTP_TTL_MINUTES", "10"))
     otp = auth.generate_otp(6)
     otp_row = models.EmailOtp(
@@ -305,6 +351,12 @@ def request_otp(body: RequestOtpBody, db: Session = Depends(database.get_db)):
     try:
         auth.send_login_otp_email(to_email=email, otp=otp, ttl_minutes=ttl_minutes)
     except Exception as e:
+        try:
+            db.delete(otp_row)
+            db.commit()
+        except Exception:
+            # Best-effort cleanup only.
+            pass
         # Keep response generic.
         raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(e)}")
 
@@ -574,7 +626,11 @@ def generate_kundli_api(
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
-        
+
+        try:
+            results["record_id"] = int(new_record.id)
+        except Exception:
+            pass
         return results
     except Exception as e:
         try:
@@ -726,6 +782,101 @@ def get_history(
         )
 
     return jsonable_encoder(payload)
+
+
+@app.get("/history/{record_id}/sade-sati-periods")
+def get_sade_sati_periods(
+    record_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    record = db.query(models.KundliRecord).filter(models.KundliRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    if int(getattr(record, "user_id", 0) or 0) != int(current_user.id):
+        # Avoid leaking record existence.
+        raise HTTPException(status_code=404, detail="Record not found")
+
+    existing = (
+        db.query(models.KundliSadeSatiPeriod)
+        .filter(models.KundliSadeSatiPeriod.record_id == int(record_id))
+        .order_by(models.KundliSadeSatiPeriod.seq.asc())
+        .all()
+    )
+
+    if existing:
+        return {
+            "ok": True,
+            "record_id": int(record_id),
+            "rows": [
+                {
+                    "start": r.start_date,
+                    "end": r.end_date,
+                    "sign_name": r.sign_name,
+                    "phase": r.phase,
+                    "type": r.phase_label or r.phase,
+                }
+                for r in existing
+            ],
+        }
+
+    # Lazily compute & persist from birth.
+    try:
+        birth_dt = date.fromisoformat(str(record.dob))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Record has invalid dob; expected YYYY-MM-DD")
+
+    years_ahead = int(os.getenv("SADE_SATI_TIMELINE_YEARS", "100"))
+    end_dt = _add_years_safe(birth_dt, years_ahead)
+
+    kundli = _kundli_stub_from_record(record)
+    if not (kundli.get("planets") or []):
+        # Fallback: legacy record without persisted planets.
+        lat = getattr(record, "lat", None)
+        lon = getattr(record, "lon", None)
+        if lat is None or lon is None:
+            coords = geocode_place(str(record.place or ""))
+            if not coords:
+                raise HTTPException(status_code=400, detail="Could not geocode place for legacy record")
+            lat, lon = coords
+        kundli = astrology.calculate_complete_kundli(str(record.dob), str(record.tob), float(lat), float(lon))
+
+    timeline = build_sade_sati_timeline(kundli=kundli, start=birth_dt, end=end_dt)
+    if not timeline.get("ok"):
+        raise HTTPException(status_code=400, detail=str(timeline.get("error") or "Failed to build timeline"))
+
+    created_rows = []
+    for i, r in enumerate(timeline.get("rows") or []):
+        row = models.KundliSadeSatiPeriod(
+            record_id=int(record_id),
+            start_date=str(r.get("start")),
+            end_date=str(r.get("end")),
+            sign_name=str(r.get("sign_name") or ""),
+            phase=str(r.get("phase") or ""),
+            phase_label=str(r.get("type") or ""),
+            seq=int(i),
+        )
+        db.add(row)
+        created_rows.append(
+            {
+                "start": row.start_date,
+                "end": row.end_date,
+                "sign_name": row.sign_name,
+                "phase": row.phase,
+                "type": row.phase_label,
+            }
+        )
+
+    try:
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
+
+    return {"ok": True, "record_id": int(record_id), "rows": created_rows}
 
 
 @app.delete("/history/{record_id}")

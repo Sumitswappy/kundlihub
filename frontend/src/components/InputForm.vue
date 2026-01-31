@@ -201,7 +201,8 @@ const generateFromHistory = async (item) => {
   try {
     const payload = { ...item, lat: null, lon: null };
     const res = await api.post('/generate', payload);
-    emit('submit-success', { kundli: res.data, request: payload });
+    const recordId = res?.data?.record_id;
+    emit('submit-success', { kundli: res.data, request: { ...payload, id: recordId || payload.id } });
   } catch (e) {
     isError.value = true;
     message.value = "Calculation failed.";
@@ -234,12 +235,12 @@ const viewHistoryItem = async (item) => {
         doshas: item.doshas,
         dasha: item.dasha,
       };
-      emit('submit-success', { kundli, request });
+      emit('submit-success', { kundli, request: { ...request, id: item.id } });
       return;
     }
 
     const res = await api.post('/calculate', request);
-    emit('submit-success', { kundli: res.data, request });
+    emit('submit-success', { kundli: res.data, request: { ...request, id: item.id } });
   } catch (e) {
     isError.value = true;
     message.value = "Failed to load saved record.";
@@ -253,7 +254,8 @@ const handleSubmit = async () => {
   message.value = '';
   try {
     const res = await api.post('/generate', form);
-    emit('submit-success', { kundli: res.data, request: { ...form } });
+    const recordId = res?.data?.record_id;
+    emit('submit-success', { kundli: res.data, request: { ...form, id: recordId || null } });
     await fetchHistory();
   } catch (e) {
     isError.value = true;

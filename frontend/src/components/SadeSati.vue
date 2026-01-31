@@ -89,46 +89,47 @@
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h4 class="text-lg font-bold text-gray-900">Sade Sati Period Chart</h4>
-          <p class="text-xs text-gray-500 mt-1">Three phases computed from Saturn’s sign relative to natal Moon.</p>
+          <h4 class="text-lg font-bold text-gray-900">Sade Sati Timeline (from birth)</h4>
+          <p class="text-xs text-gray-500 mt-1">
+            Stored per saved record so the frontend doesn’t have to recompute each time.
+          </p>
 
-          <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div
-              v-for="p in (data.phases || [])"
-              :key="p.phase"
-              class="border border-gray-100 rounded-xl p-4 bg-gray-50"
-            >
-              <div class="flex items-start justify-between gap-2">
-                <div>
-                  <div class="font-bold text-gray-900">{{ p.label }}</div>
-                  <div class="text-xs text-gray-500 mt-1">
-                    Saturn sign: <span class="font-semibold text-gray-700">{{ p.saturn_target_sign || '—' }}</span>
-                  </div>
-                </div>
-                <span class="px-2 py-0.5 rounded-full text-[11px] font-bold border" :class="severityClass(p.severity)">
-                  {{ (p.severity || '—').toUpperCase() }}
-                </span>
-              </div>
+          <div v-if="timelineError" class="mt-4 p-3 rounded-lg bg-red-50 text-red-700 border border-red-100 text-sm">
+            {{ timelineError }}
+          </div>
 
-              <div v-if="(p.segments || []).length === 0" class="text-sm text-gray-600 mt-3">
-                No segments found in scan range.
-              </div>
+          <div v-else-if="timelineLoading" class="mt-4 p-3 rounded-lg bg-gray-50 text-gray-600 border border-gray-100 text-sm">
+            Building timeline… (first time can take a bit)
+          </div>
 
-              <div v-else class="mt-3 space-y-2">
-                <div
-                  v-for="(s, idx) in p.segments"
-                  :key="idx"
-                  class="rounded-lg border border-gray-100 bg-white p-3"
-                >
-                  <div class="text-sm text-gray-800">
-                    <span class="font-semibold">{{ s.start }}</span> → <span class="font-semibold">{{ s.end }}</span>
-                  </div>
-                  <div class="text-xs text-gray-500 mt-1">
-                    {{ s.days }} days • ~{{ s.approx_months }} months
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div v-else-if="(timelineRows || []).length === 0" class="mt-4 p-3 rounded-lg bg-gray-50 text-gray-600 border border-gray-100 text-sm">
+            No timeline available. Save this kundli to history first.
+          </div>
+
+          <div v-else class="mt-4 overflow-auto border border-gray-100 rounded-xl">
+            <table class="min-w-full text-sm">
+              <thead class="bg-gray-50 text-gray-600">
+                <tr>
+                  <th class="text-left px-4 py-3 font-semibold">Start</th>
+                  <th class="text-left px-4 py-3 font-semibold">End</th>
+                  <th class="text-left px-4 py-3 font-semibold">Sign Name</th>
+                  <th class="text-left px-4 py-3 font-semibold">Type</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <tr v-for="(r, idx) in timelineRows" :key="idx" class="bg-white">
+                  <td class="px-4 py-3 whitespace-nowrap">{{ r.start }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap">{{ r.end }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap">{{ r.sign_name || '—' }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <span class="px-2 py-0.5 rounded-full text-[11px] font-bold border"
+                      :class="r.type === 'Peak' ? 'bg-red-50 text-red-700 border-red-100' : r.type === 'Rising' ? 'bg-amber-50 text-amber-700 border-amber-100' : r.type === 'Setting' ? 'bg-gray-50 text-gray-700 border-gray-200' : 'bg-gray-50 text-gray-600 border-gray-100'">
+                      {{ r.type || '—' }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -200,6 +201,10 @@ const loading = ref(false)
 const error = ref('')
 const data = ref(null)
 
+const timelineLoading = ref(false)
+const timelineError = ref('')
+const timelineRows = ref([])
+
 const todayIso = () => {
   try {
     const d = new Date()
@@ -236,6 +241,28 @@ const fetchSadeSati = async () => {
   }
 }
 
+const fetchTimeline = async () => {
+  timelineError.value = ''
+  timelineRows.value = []
+  if (!props.request) return
+
+  const recordId = props.request?.id || props.request?.record_id || null
+  if (!recordId) {
+    timelineRows.value = []
+    return
+  }
+
+  timelineLoading.value = true
+  try {
+    const resp = await api.get(`/history/${recordId}/sade-sati-periods`)
+    timelineRows.value = Array.isArray(resp?.data?.rows) ? resp.data.rows : []
+  } catch (e) {
+    timelineError.value = e?.response?.data?.detail || e?.message || 'Failed to fetch Sade Sati timeline.'
+  } finally {
+    timelineLoading.value = false
+  }
+}
+
 const severityClass = (severity) => {
   if (severity === 'high') return 'bg-red-50 text-red-700 border-red-100'
   if (severity === 'medium') return 'bg-amber-50 text-amber-700 border-amber-100'
@@ -255,11 +282,15 @@ watch(
       data.value = null
       error.value = ''
       fetchSadeSati()
+      fetchTimeline()
     }
   }
 )
 
 onMounted(() => {
-  if (props.request) fetchSadeSati()
+  if (props.request) {
+    fetchSadeSati()
+    fetchTimeline()
+  }
 })
 </script>

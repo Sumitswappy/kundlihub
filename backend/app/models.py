@@ -15,10 +15,39 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    email_verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    kundli_records = relationship(
+        "KundliRecord",
+        back_populates="user",
+        order_by="KundliRecord.created_at",
+    )
+
+
+class EmailOtp(Base):
+    __tablename__ = "email_otps"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String, nullable=False, index=True)
+    otp_hash = Column(String, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class KundliRecord(Base):
     __tablename__ = "kundli_records"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
     full_name = Column(String, nullable=False)
     gender = Column(String, nullable=True)
     dob = Column(String, nullable=False)
@@ -30,6 +59,8 @@ class KundliRecord(Base):
     lon = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    user = relationship("User", back_populates="kundli_records")
 
     # Normalized relationships
     panchang_row = relationship(

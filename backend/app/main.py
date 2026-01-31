@@ -1,8 +1,10 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
 from fastapi.middleware.cors import CORSMiddleware
 from . import models, database, astrology
+from . import auth
 from .dasha_logic import calc_vimshottari_subperiods
 from .dosha_logic import calculate_doshas
 from .horoscope_logic import calculate_daily_horoscope
@@ -12,7 +14,9 @@ from fastapi.encoders import jsonable_encoder
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 import json
+import os
 from datetime import date
+from datetime import datetime, timedelta, timezone
 
 # Create DB tables
 models.Base.metadata.create_all(bind=database.engine)
@@ -24,6 +28,7 @@ try:
         conn.execute(text("ALTER TABLE kundli_records ADD COLUMN IF NOT EXISTS gender VARCHAR"))
         conn.execute(text("ALTER TABLE kundli_records ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION"))
         conn.execute(text("ALTER TABLE kundli_records ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION"))
+        conn.execute(text("ALTER TABLE kundli_records ADD COLUMN IF NOT EXISTS user_id INTEGER"))
 except Exception:
     # Non-fatal: if this fails, new DBs will still have the column via models.py.
     pass
@@ -210,6 +215,8 @@ _drop_legacy_json_columns_best_effort()
 
 app = FastAPI()
 
+security = HTTPBearer(auto_error=False)
+
 # Enable CORS for Vue frontend
 app.add_middleware(
     CORSMiddleware,
@@ -242,6 +249,130 @@ class DailyHoroscopeRequest(KundliRequest):
 
 class SadeSatiRequest(KundliRequest):
     for_date: str | None = None  # YYYY-MM-DD (optional)
+
+
+class RequestOtpBody(BaseModel):
+    email: str
+
+
+class VerifyOtpBody(BaseModel):
+    email: str
+    otp: str
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def get_current_user(
+    db: Session = Depends(database.get_db),
+    creds: HTTPAuthorizationCredentials | None = Depends(security),
+) -> models.User:
+    if creds is None or not creds.credentials:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+
+    try:
+        payload = auth.decode_access_token(creds.credentials)
+        user_id = int(payload.get("sub"))
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+
+@app.post("/auth/request-otp")
+def request_otp(body: RequestOtpBody, db: Session = Depends(database.get_db)):
+    try:
+        email = auth.normalize_email(body.email)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid email")
+
+    ttl_minutes = int(os.getenv("OTP_TTL_MINUTES", "10"))
+    otp = auth.generate_otp(6)
+    otp_row = models.EmailOtp(
+        email=email,
+        otp_hash=auth.hash_otp(email, otp),
+        expires_at=_utcnow() + timedelta(minutes=ttl_minutes),
+        attempts=0,
+    )
+
+    db.add(otp_row)
+    db.commit()
+
+    try:
+        auth.send_login_otp_email(to_email=email, otp=otp, ttl_minutes=ttl_minutes)
+    except Exception as e:
+        # Keep response generic.
+        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(e)}")
+
+    # In DEV_OTP_ECHO mode, the OTP is printed server-side.
+    return {"ok": True}
+
+
+@app.post("/auth/verify-otp")
+def verify_otp(body: VerifyOtpBody, db: Session = Depends(database.get_db)):
+    try:
+        email = auth.normalize_email(body.email)
+        otp = (body.otp or "").strip()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid email or OTP")
+
+    row = (
+        db.query(models.EmailOtp)
+        .filter(models.EmailOtp.email == email)
+        .order_by(models.EmailOtp.id.desc())
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    if row.consumed_at is not None:
+        raise HTTPException(status_code=400, detail="OTP already used")
+
+    if row.expires_at is None or row.expires_at < _utcnow():
+        raise HTTPException(status_code=400, detail="OTP expired")
+
+    row.attempts = int(row.attempts or 0) + 1
+    if row.attempts > int(os.getenv("OTP_MAX_ATTEMPTS", "5")):
+        db.commit()
+        raise HTTPException(status_code=429, detail="Too many attempts")
+
+    expected = row.otp_hash
+    actual = auth.hash_otp(email, otp)
+    if not auth.constant_time_equals(expected, actual):
+        db.commit()
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    row.consumed_at = _utcnow()
+
+    user = db.query(models.User).filter(models.User.email == email).first()
+    now = _utcnow()
+    if not user:
+        user = models.User(email=email, email_verified_at=now, last_login_at=now)
+        db.add(user)
+        db.flush()  # get id
+    else:
+        if user.email_verified_at is None:
+            user.email_verified_at = now
+        user.last_login_at = now
+
+    db.commit()
+
+    token = auth.create_access_token(user_id=int(user.id), email=user.email)
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@app.get("/auth/me")
+def me(current_user: models.User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "email_verified_at": current_user.email_verified_at.isoformat() if current_user.email_verified_at else None,
+        "last_login_at": current_user.last_login_at.isoformat() if current_user.last_login_at else None,
+    }
 
 
 def geocode_place(place: str) -> tuple[float, float] | None:
@@ -325,7 +456,11 @@ def sade_sati_api(request: SadeSatiRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/generate")
-def generate_kundli_api(request: KundliRequest, db: Session = Depends(database.get_db)):
+def generate_kundli_api(
+    request: KundliRequest,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     # 1. Perform Calculations
     try:
         lat = request.lat
@@ -351,6 +486,7 @@ def generate_kundli_api(request: KundliRequest, db: Session = Depends(database.g
         
         # 2. Save to Neon DB
         new_record = models.KundliRecord(
+            user_id=int(current_user.id),
             full_name=request.full_name,
             gender=request.gender,
             dob=request.dob,
@@ -477,10 +613,15 @@ def calculate_kundli_api(request: KundliRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/history")
-def get_history(limit: int = 25, db: Session = Depends(database.get_db)):
+def get_history(
+    limit: int = 25,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     limit = max(1, min(int(limit), 200))
     records = (
         db.query(models.KundliRecord)
+        .filter(models.KundliRecord.user_id == int(current_user.id))
         .order_by(models.KundliRecord.created_at.desc())
         .limit(limit)
         .all()
@@ -527,6 +668,7 @@ def get_history(limit: int = 25, db: Session = Depends(database.get_db)):
             )
 
         avakhada = None
+        doshas = None
         if a is not None:
             avakhada = {
                 "varna": a.varna,
@@ -587,9 +729,16 @@ def get_history(limit: int = 25, db: Session = Depends(database.get_db)):
 
 
 @app.delete("/history/{record_id}")
-def delete_history_item(record_id: int, db: Session = Depends(database.get_db)):
+def delete_history_item(
+    record_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     record = db.query(models.KundliRecord).filter(models.KundliRecord.id == record_id).first()
     if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    if int(getattr(record, "user_id", 0) or 0) != int(current_user.id):
+        # Avoid leaking record existence.
         raise HTTPException(status_code=404, detail="Record not found")
     try:
         db.delete(record)

@@ -71,7 +71,7 @@
           
           <div class="flex items-center justify-between mb-6">
             <h4 class="font-bold text-gray-700 text-lg">History</h4>
-            <button @click="fetchHistory" :disabled="historyLoading"
+            <button @click="fetchHistory" :disabled="historyFetching"
               class="text-xs bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl font-bold hover:bg-indigo-100 transition inline-flex items-center gap-2">
               <svg v-if="historyLoading" class="animate-spin h-3 w-3" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
@@ -131,7 +131,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import api from '../api/client';
 const emit = defineEmits(['submit-success']);
 
@@ -142,6 +142,7 @@ const message = ref('');
 const isError = ref(false);
 const history = ref([]);
 const historyLoading = ref(false);
+const historyFetching = ref(false);
 const searchQuery = ref('');
 
 // Filtered History
@@ -153,15 +154,18 @@ const filteredHistory = computed(() => {
 });
 
 // Methods
-const fetchHistory = async () => {
-  historyLoading.value = true;
+const fetchHistory = async ({ silent = false } = {}) => {
+  if (historyFetching.value) return;
+  historyFetching.value = true;
+  if (!silent) historyLoading.value = true;
   try {
     const res = await api.get('/history');
     history.value = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
     console.error("History fetch error:", e);
   } finally {
-    historyLoading.value = false;
+    historyFetching.value = false;
+    if (!silent) historyLoading.value = false;
   }
 };
 
@@ -257,7 +261,33 @@ const handleSubmit = async () => {
   }
 };
 
-onMounted(fetchHistory);
+const AUTO_REFRESH_MS = 15000;
+let refreshIntervalId;
+
+const handleWindowFocus = () => {
+  fetchHistory({ silent: true });
+};
+
+const handleVisibilityChange = () => {
+  if (!document.hidden) fetchHistory({ silent: true });
+};
+
+onMounted(() => {
+  fetchHistory();
+
+  window.addEventListener('focus', handleWindowFocus);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  refreshIntervalId = window.setInterval(() => {
+    fetchHistory({ silent: true });
+  }, AUTO_REFRESH_MS);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('focus', handleWindowFocus);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  if (refreshIntervalId) window.clearInterval(refreshIntervalId);
+});
 </script>
 
 <style scoped>

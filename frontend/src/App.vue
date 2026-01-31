@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import OtpLogin from './components/OtpLogin.vue'
 import InputForm from './components/InputForm.vue'
 import KundliChart from './components/KundliChart.vue'
 import PlanetaryPositions from './components/PlanetaryPositions.vue'
@@ -8,6 +9,18 @@ import BasicDetails from './components/BasicDetails.vue'
 import Dosha from './components/Dosha.vue'
 import DailyHoroscope from './components/DailyHoroscope.vue'
 import SadeSati from './components/SadeSati.vue'
+
+const token = ref(localStorage.getItem('access_token') || '')
+const isLoggedIn = computed(() => Boolean(token.value))
+
+const onLoggedIn = (t) => {
+  token.value = t
+}
+
+const logout = () => {
+  localStorage.removeItem('access_token')
+  token.value = ''
+}
 
 // Holds { kundli, request }
 const viewModel = ref(null)
@@ -95,10 +108,21 @@ const navamsaLagnaRashi = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-purple-50 py-6 sm:py-10">
+  <OtpLogin v-if="!isLoggedIn" @logged-in="onLoggedIn" />
+
+  <div v-else class="min-h-screen bg-purple-50 py-6 sm:py-10">
     <header class="text-center mb-6 sm:mb-10">
       <h1 class="text-3xl sm:text-4xl font-bold text-indigo-900">Kundli Hub</h1>
       <p class="text-gray-600">Kundli Maker Website</p>
+      <div class="mt-4">
+        <button
+          type="button"
+          @click="logout"
+          class="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-semibold hover:bg-gray-50 transition"
+        >
+          Logout
+        </button>
+      </div>
     </header>
 
     <main class="container mx-auto px-4">

@@ -4,6 +4,8 @@ sqlalchemy
 psycopg2-binary
 python-dotenv
 pydantic
+requests
+PyJWT
 pyswisseph
 timezonefinder
 tzdata

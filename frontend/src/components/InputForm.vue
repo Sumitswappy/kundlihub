@@ -3,11 +3,12 @@
     <div class="grid grid-cols-12 gap-6 sm:gap-8 lg:gap-12 items-start">
 
       <div class="col-span-12 lg:col-span-7 flex flex-col">
-        <h3 class="text-xl font-bold text-gray-800 mb-4 ml-2">New Kundli</h3>
+        
         
         <div class="w-full max-w-3xl mx-auto flex flex-col p-5 sm:p-8 md:p-10 bg-white shadow-2xl rounded-3xl border border-gray-100 h-auto">
           <div class="text-center mb-8">
-            <h2 class="text-3xl font-extrabold text-gray-900">Kundli Details</h2>
+            
+            <h2 class="text-3xl font-extrabold text-gray-900">New Kundli</h2>
             <p class="text-gray-500 mt-2 text-base">Enter birth details to generate your Vedic Chart</p>
           </div>
 
@@ -66,11 +67,12 @@
       </div>
 
       <div class="col-span-12 lg:col-span-5 flex flex-col lg:sticky lg:top-6">
-        <h3 class="text-xl font-bold text-gray-800 mb-4 ml-2">Saved Kundli</h3>
+       
         <div class="flex flex-col p-5 sm:p-6 bg-white shadow-xl rounded-3xl border border-gray-100 max-h-none lg:max-h-[calc(100vh-140px)]">
-          
+           
           <div class="flex items-center justify-between mb-6">
-            <h4 class="font-bold text-gray-700 text-lg">History</h4>
+            
+            <h4 class="font-bold text-gray-700 text-lg">Saved Kundlis</h4>
             <button @click="fetchHistory" :disabled="historyFetching"
               class="text-xs bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl font-bold hover:bg-indigo-100 transition inline-flex items-center gap-2">
               <svg v-if="historyLoading" class="animate-spin h-3 w-3" viewBox="0 0 24 24">

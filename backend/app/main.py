@@ -461,7 +461,10 @@ def _resolve_coords(request: KundliRequest) -> tuple[float, float]:
 
 
 @app.post("/horoscope/daily")
-def daily_horoscope_api(request: DailyHoroscopeRequest):
+def daily_horoscope_api(
+    request: DailyHoroscopeRequest,
+    current_user: models.User = Depends(get_current_user),
+):
     """Compute a simple daily horoscope plus remedies.
 
     Uses natal Moon sign and today's Moon transit as the primary signal.
@@ -487,7 +490,10 @@ def daily_horoscope_api(request: DailyHoroscopeRequest):
 
 
 @app.post("/sade-sati")
-def sade_sati_api(request: SadeSatiRequest):
+def sade_sati_api(
+    request: SadeSatiRequest,
+    current_user: models.User = Depends(get_current_user),
+):
     """Compute Shani Sade Sati phases + remedies based on natal Moon sign."""
     try:
         lat, lon = _resolve_coords(request)

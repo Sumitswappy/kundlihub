@@ -1,8 +1,14 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import api from '../api/client'
+import AppHeader from './Header.vue'
+import AppFooter from './Footer.vue'
 
 const emit = defineEmits(['logged-in'])
+
+defineProps({
+  embedded: { type: Boolean, default: false },
+})
 
 const email = ref('')
 const otp = ref('')
@@ -130,13 +136,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-purple-50 py-6 sm:py-10">
-    <header class="text-center mb-6 sm:mb-10">
-      <h1 class="text-3xl sm:text-4xl font-bold text-indigo-900">Kundli Hub</h1>
-      <p class="text-gray-600">Login with email OTP</p>
-    </header>
+  <div :class="embedded ? '' : 'min-h-screen bg-purple-50'">
+    <AppHeader v-if="!embedded" :me="null" :profileOpen="false" :showProfile="false" />
 
-    <main class="container mx-auto px-4">
+    <main :class="embedded ? '' : 'container mx-auto px-4 pt-10 pb-20'">
       <div class="max-w-lg mx-auto bg-white rounded-2xl shadow-md border border-gray-100 p-6 sm:p-8">
         <h2 class="text-xl font-bold text-gray-900">Sign in</h2>
         <p class="text-sm text-gray-500 mt-1">We’ll send a one-time code to your email.</p>
@@ -215,5 +218,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </main>
+
+    <AppFooter v-if="!embedded" />
   </div>
 </template>

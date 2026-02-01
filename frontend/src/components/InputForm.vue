@@ -67,8 +67,10 @@
       </div>
 
       <div class="col-span-12 lg:col-span-5 flex flex-col lg:sticky lg:top-6">
-       
-        <div class="flex flex-col p-5 sm:p-6 bg-white shadow-xl rounded-3xl border border-gray-100 max-h-none lg:max-h-[calc(100vh-140px)]">
+        <div
+          v-if="isLoggedIn"
+          class="flex flex-col p-5 sm:p-6 bg-white shadow-xl rounded-3xl border border-gray-100 max-h-none lg:max-h-[calc(100vh-140px)]"
+        >
            
           <div class="flex items-center justify-between mb-6">
             
@@ -126,6 +128,13 @@
             </div>
           </div>
         </div>
+
+        <div v-else class="p-5 sm:p-6 bg-white shadow-xl rounded-3xl border border-gray-100">
+          <h4 class="font-bold text-gray-800 text-lg">Saved Kundlis</h4>
+          <p class="text-sm text-gray-600 mt-2">
+            Login to save your kundlis and access full features.
+          </p>
+        </div>
       </div>
 
     </div>
@@ -136,6 +145,10 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import api from '../api/client';
 const emit = defineEmits(['submit-success']);
+
+const props = defineProps({
+  isLoggedIn: { type: Boolean, default: false },
+});
 
 // State
 const form = reactive({ full_name: '', gender: '', dob: '', tob: '', place: '', lat: null, lon: null });
@@ -253,10 +266,17 @@ const handleSubmit = async () => {
   loading.value = true;
   message.value = '';
   try {
-    const res = await api.post('/generate', form);
+    const endpoint = props.isLoggedIn ? '/generate' : '/calculate';
+    const res = await api.post(endpoint, form);
     const recordId = res?.data?.record_id;
     emit('submit-success', { kundli: res.data, request: { ...form, id: recordId || null } });
-    await fetchHistory();
+
+    if (props.isLoggedIn) {
+      await fetchHistory();
+    } else {
+      message.value = 'Kundli generated (not saved).'
+      isError.value = false
+    }
   } catch (e) {
     isError.value = true;
     message.value = "Server error. Check connection.";
@@ -265,7 +285,7 @@ const handleSubmit = async () => {
   }
 };
 
-const AUTO_REFRESH_MS = 15000;
+const AUTO_REFRESH_MS = 60000;
 let refreshIntervalId;
 
 const handleWindowFocus = () => {
@@ -277,6 +297,8 @@ const handleVisibilityChange = () => {
 };
 
 onMounted(() => {
+  if (!props.isLoggedIn) return;
+
   fetchHistory();
 
   window.addEventListener('focus', handleWindowFocus);
@@ -288,6 +310,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (!props.isLoggedIn) return;
+
   window.removeEventListener('focus', handleWindowFocus);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   if (refreshIntervalId) window.clearInterval(refreshIntervalId);

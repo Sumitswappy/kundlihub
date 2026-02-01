@@ -15,7 +15,7 @@
         
       </div>
 
-      <div class="absolute right-6 top-1/2 -translate-y-1/2 z-10">
+      <div v-if="showProfile" class="absolute right-6 top-1/2 -translate-y-1/2 z-10">
         <button
           type="button"
           @click="$emit('open-profile')"
@@ -41,7 +41,7 @@
   </header>
 
   <div
-    v-if="profileOpen"
+    v-if="showProfile && profileOpen"
     class="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center px-4"
     @click.self="$emit('close-profile')"
   >
@@ -89,6 +89,7 @@
 defineProps({
   me: { type: Object, default: null },
   profileOpen: { type: Boolean, default: false },
+  showProfile: { type: Boolean, default: true },
 })
 
 defineEmits(['open-profile', 'close-profile', 'logout'])

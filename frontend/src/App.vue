@@ -52,6 +52,7 @@ const logout = () => {
   token.value = ''
   me.value = null
   profileOpen.value = false
+  reset()
 }
 
 watch(

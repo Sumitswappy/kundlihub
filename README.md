@@ -44,8 +44,8 @@ KundliHub/
 			api/
 				client.js
 			components/
-				AppHeader.vue
-				AppFooter.vue
+				Header.vue
+				Footer.vue
 				InputForm.vue
 				KundliChart.vue
 				PlanetaryPositions.vue
@@ -54,6 +54,7 @@ KundliHub/
 				DailyHoroscope.vue
 				Dosha.vue
 				SadeSati.vue
+				OtpLogin.vue
 ```
 
 ## Tech Stack (with versions)
@@ -144,6 +145,35 @@ Set `DATABASE_URL`:
 	- `DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=require`
 - Option B: export as an environment variable.
 
+`backend/.env` is loaded automatically at startup (see [backend/app/database.py](backend/app/database.py)).
+
+Example `backend/.env` (safe defaults for local dev):
+
+```env
+# Database (quick local option)
+DATABASE_URL=sqlite:///./kundlihub.db
+
+# Required for OTP hashing + JWT auth
+JWT_SECRET=change-me-in-prod
+
+# Optional: Resend email (for real OTP delivery)
+# RESEND_API_KEY=
+# RESEND_FROM_EMAIL=
+
+# Dev convenience: show OTP in server logs and skip sending email
+DEV_OTP_ECHO=1
+DEV_OTP_SKIP_SEND=1
+
+# Optional tuning
+OTP_TTL_MINUTES=10
+OTP_MAX_ATTEMPTS=5
+OTP_MAX_REQUESTS_PER_EMAIL=10
+OTP_REQUEST_WINDOW_MINUTES=1440
+
+# How far ahead to compute “Sade Sati from birth” timeline when first requested
+SADE_SATI_TIMELINE_YEARS=100
+```
+
 Security note: never commit real credentials. If your `backend/.env` was ever committed, rotate that password.
 
 Run the API:
@@ -176,7 +206,7 @@ Dev-only flags:
 - `DEV_OTP_SKIP_SEND=1` – do not send emails (use with `DEV_OTP_ECHO`)
 
 Sade Sati timeline storage:
-- `SADE_SATI_TIMELINE_YEARS` (default: `120`) – how far from birth to compute and store the timeline
+- `SADE_SATI_TIMELINE_YEARS` (default: `100`) – how far from birth to compute and store the timeline
 
 ### 2) Frontend Setup
 
@@ -191,7 +221,13 @@ Frontend runs on the URL shown by Vite (typically `http://localhost:5173`).
 #### Frontend API base URL
 
 The Axios client is configured in [frontend/src/api/client.js](frontend/src/api/client.js).
-By default it uses `http://localhost:8000`. You can switch it to use a Vite env var (recommended for deploys), e.g. `VITE_API_BASE_URL`.
+
+- It uses `import.meta.env.VITE_API_BASE_URL` when set.
+- It falls back to `http://localhost:8000` for local dev.
+
+To configure it, copy [frontend/.env.example](frontend/.env.example) to `frontend/.env` and set:
+
+- `VITE_API_BASE_URL=http://localhost:8000`
 
 ## Deploying to Another System
 
@@ -228,13 +264,19 @@ npm run build
 ```
 
 2. Deploy the generated `frontend/dist/` to any static host (Nginx, Netlify, Vercel, S3, etc.).
-3. Ensure the frontend is configured to call the correct backend base URL (currently hardcoded to `http://localhost:8000` in components using Axios).
+3. Ensure the frontend is built with the correct API base URL:
+	- Set `VITE_API_BASE_URL` in `frontend/.env` before running `npm run build`, or
+	- Provide `VITE_API_BASE_URL` via your hosting provider’s build-time environment variables.
 
-Tip: a common improvement is to switch those constants to `import.meta.env.VITE_API_BASE_URL` and define it via a Vite `.env` file.
+Note: Vite injects `VITE_*` variables at build time. If the backend URL changes, rebuild the frontend.
 
 ## Notes
 
 - The Vimshottari sub‑dashas are fetched on demand to keep the initial payload small.
 - Saved “View” uses stored JSON and does not create duplicate records.
 - The Sade Sati “from birth” table is persisted per saved record; first fetch may take longer, subsequent fetches are fast.
+
+### Timezone note
+
+For consistency, calculations currently assume a fixed IST offset (`GMT+5:30`) instead of resolving a timezone from the place/coordinates.
 

@@ -258,7 +258,7 @@ const navamsaLagnaRashi = computed(() => {
             </button>
           </div>
 
-          <div class="sticky top-[120px] z-30 sm:static">
+          <div class=" top-[120px] z-30 sm:static">
             <div class="bg-white/95 backdrop-blur rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <div class="flex flex-wrap">
                 <button

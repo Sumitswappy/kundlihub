@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 import json
 import os
 import calendar
+import time
 from datetime import date
 from datetime import datetime, timedelta, timezone
 
@@ -472,17 +473,73 @@ def me(current_user: models.User = Depends(get_current_user)):
 
 
 def geocode_place(place: str) -> tuple[float, float] | None:
-    # Nominatim usage policy asks for a valid User-Agent identifying your app.
-    url = f"https://nominatim.openstreetmap.org/search?format=json&limit=1&q={quote(place)}"
-    req = Request(url, headers={"User-Agent": "KundliHub/1.0 (local dev)"})
-    try:
-        with urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        if not data:
-            return None
-        return float(data[0]["lat"]), float(data[0]["lon"])
-    except Exception:
+    # Intermittent failures here are usually due to Nominatim rate limits / timeouts.
+    # Keep this best-effort and cache results to reduce repeated calls.
+
+    raw = str(place or "")
+    norm = " ".join(raw.strip().split())
+    if not norm:
         return None
+
+    # Small per-process cache (Render instances are ephemeral; this still helps a lot).
+    # Key is lowercased normalized place string.
+    cache_key = norm.lower()
+    now = time.time()
+    cache_ttl = int(os.getenv("GEOCODE_CACHE_TTL_SECONDS", "86400"))
+    try:
+        cache = geocode_place._cache  # type: ignore[attr-defined]
+    except Exception:
+        cache = {}
+        geocode_place._cache = cache  # type: ignore[attr-defined]
+
+    hit = cache.get(cache_key)
+    if hit:
+        ts, lat, lon = hit
+        if (now - float(ts)) <= float(cache_ttl):
+            return float(lat), float(lon)
+
+    ua = os.getenv(
+        "NOMINATIM_USER_AGENT",
+        "KundliHub/1.0 (geocoder; contact: set NOMINATIM_USER_AGENT)",
+    )
+    url = f"https://nominatim.openstreetmap.org/search?format=json&limit=1&q={quote(norm)}"
+
+    # Retry a couple times with tiny backoff to ride out transient 429/5xx/timeouts.
+    for attempt, sleep_s in enumerate((0.0, 0.4, 0.9)):
+        if sleep_s:
+            try:
+                time.sleep(sleep_s)
+            except Exception:
+                pass
+
+        req = Request(url, headers={"User-Agent": ua, "Accept": "application/json"})
+        try:
+            with urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            if not data:
+                return None
+
+            lat = float(data[0]["lat"])
+            lon = float(data[0]["lon"])
+            cache[cache_key] = (now, lat, lon)
+
+            # Keep cache bounded.
+            max_items = int(os.getenv("GEOCODE_CACHE_MAX_ITEMS", "2000"))
+            if len(cache) > max_items:
+                # Drop oldest ~10%.
+                try:
+                    for k, _v in sorted(cache.items(), key=lambda kv: kv[1][0])[: max(1, max_items // 10)]:
+                        cache.pop(k, None)
+                except Exception:
+                    pass
+
+            return lat, lon
+        except Exception:
+            # Try again if attempts remain.
+            if attempt >= 2:
+                return None
+
+    return None
 
 
 def _resolve_coords(request: KundliRequest) -> tuple[float, float]:

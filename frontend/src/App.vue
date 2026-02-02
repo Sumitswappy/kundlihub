@@ -115,6 +115,20 @@ const personName = computed(() => {
 })
 
 const handleKundliGenerated = (data) => {
+  // Persist computed coordinates into the request so downstream endpoints
+  // (/horoscope/daily, /sade-sati) don't re-run geocoding.
+  try {
+    const k = data?.kundli
+    const p = k?.panchang || {}
+    const lat = p?.lat
+    const lon = p?.lon
+    if (data?.request && (data.request.lat == null || data.request.lon == null)) {
+      if (lat != null && lon != null) {
+        data.request = { ...data.request, lat, lon }
+      }
+    }
+  } catch {}
+
   viewModel.value = data
   activeTab.value = isLoggedIn.value ? 'details' : 'chart'
 }

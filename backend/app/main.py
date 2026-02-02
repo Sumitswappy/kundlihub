@@ -15,10 +15,15 @@ from pydantic import BaseModel
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import quote
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 import json
 import os
 import calendar
 import time
+import re
+import logging
+import random
+import math
 from datetime import date
 from datetime import datetime, timedelta, timezone
 
@@ -219,6 +224,62 @@ _drop_legacy_json_columns_best_effort()
 
 app = FastAPI()
 
+logger = logging.getLogger(__name__)
+
+_LOCATION_NOT_IDENTIFIED_MSG = (
+    "Location could not be identified. Please select from the dropdown or provide coordinates."
+)
+
+
+def _normalize_place_key(place: str | None) -> str:
+    s = str(place or "").lower().strip()
+    if not s:
+        return ""
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _place_similarity(a: str, b: str) -> float:
+    a = (a or "").strip()
+    b = (b or "").strip()
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    sa = set(a.split())
+    sb = set(b.split())
+    if not sa or not sb:
+        return 0.0
+    inter = len(sa.intersection(sb))
+    union = len(sa.union(sb))
+    return float(inter) / float(union) if union else 0.0
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    # Returns great-circle distance in kilometers.
+    r = 6371.0
+    p1 = math.radians(float(lat1))
+    p2 = math.radians(float(lat2))
+    dlat = p2 - p1
+    dlon = math.radians(float(lon2) - float(lon1))
+    a = math.sin(dlat / 2.0) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2.0) ** 2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+    return r * c
+
+
+def _geocode_or_400(place: str) -> tuple[float, float]:
+    try:
+        coords = geocode_place(place)
+    except HTTPError as e:
+        raise HTTPException(status_code=400, detail=_LOCATION_NOT_IDENTIFIED_MSG) from e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=_LOCATION_NOT_IDENTIFIED_MSG) from e
+
+    if not coords:
+        raise HTTPException(status_code=400, detail=_LOCATION_NOT_IDENTIFIED_MSG)
+    return coords
+
 security = HTTPBearer(auto_error=False)
 
 # Enable CORS for Vue frontend
@@ -285,20 +346,72 @@ def _normalize_dob(dob: str) -> str:
 
     dob_s = (str(dob) if dob is not None else "").strip()
     if not dob_s:
-        raise HTTPException(status_code=422, detail="dob is required")
+        raise HTTPException(status_code=400, detail="dob is required")
 
+    # Normalize whitespace / punctuation and strip ordinal day suffixes like 18th.
+    s = re.sub(r"\s+", " ", dob_s).strip()
+    s = s.replace(",", "")
+    s = re.sub(r"\b(\d{1,2})(st|nd|rd|th)\b", r"\1", s, flags=re.IGNORECASE)
+
+    # 1) Strict ISO first (YYYY-MM-DD).
     try:
-        return date.fromisoformat(dob_s).isoformat()
+        return date.fromisoformat(s).isoformat()
     except Exception:
         pass
 
-    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%Y/%m/%d", "%Y.%m.%d"):
+    # 2) ISO-like with non-zero-padded month/day (YYYY-M-D).
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", s)
+    if m:
         try:
-            return datetime.strptime(dob_s, fmt).date().isoformat()
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            return date(y, mo, d).isoformat()
+        except Exception:
+            pass
+
+    # 3) Pure numeric formats.
+    # Handle DD-MM-YYYY, DD/MM/YYYY, and (common on iOS locale) MM/DD/YYYY.
+    m = re.match(r"^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$", s)
+    if m:
+        a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        # Heuristic: if one part is > 12, that's the day.
+        if a > 12 and b <= 12:
+            d, mo = a, b
+        elif b > 12 and a <= 12:
+            mo, d = a, b
+        else:
+            # Ambiguous (e.g., 05/06/1997). Prefer day-month-year for India audience.
+            d, mo = a, b
+        try:
+            return date(y, mo, d).isoformat()
+        except Exception:
+            pass
+
+    # 4) Month-name formats (mobile keyboards often produce these).
+    # Examples: "18 May 1997", "18 May 1997", "May 18 1997", "May 18 1997".
+    month_fmts = (
+        "%d %b %Y",
+        "%d %B %Y",
+        "%b %d %Y",
+        "%B %d %Y",
+        "%d-%b-%Y",
+        "%d-%B-%Y",
+        "%b-%d-%Y",
+        "%B-%d-%Y",
+        "%d/%b/%Y",
+        "%d/%B/%Y",
+        "%b/%d/%Y",
+        "%B/%d/%Y",
+    )
+    for fmt in month_fmts:
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
         except Exception:
             continue
 
-    raise HTTPException(status_code=422, detail="Invalid dob; expected YYYY-MM-DD")
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid dob. Expected YYYY-MM-DD (e.g., 1997-05-18). Also accepts 18-05-1997 and 18 May 1997.",
+    )
 
 
 def _normalize_tob(tob: str) -> str:
@@ -306,17 +419,52 @@ def _normalize_tob(tob: str) -> str:
 
     tob_s = (str(tob) if tob is not None else "").strip()
     if not tob_s:
-        raise HTTPException(status_code=422, detail="tob is required")
+        raise HTTPException(status_code=400, detail="tob is required")
 
-    # Common case: browser <input type="time"> may send HH:MM or HH:MM:SS
+    s = re.sub(r"\s+", " ", tob_s).strip()
+    # Some keyboards use a dot separator like 11.30 PM
+    s = s.replace(".", ":")
+
+    # 1) 24-hour formats.
     for fmt in ("%H:%M", "%H:%M:%S"):
         try:
-            parsed = datetime.strptime(tob_s, fmt)
+            parsed = datetime.strptime(s, fmt)
             return parsed.strftime("%H:%M")
         except Exception:
             continue
 
-    raise HTTPException(status_code=422, detail="Invalid tob; expected HH:MM")
+    # 2) AM/PM formats (common on mobile: "11:00 AM", "11AM", "11:00AM", "7 pm").
+    s_upper = s.upper()
+    m = re.match(r"^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([AP]M)$", s_upper)
+    if m:
+        hour = int(m.group(1))
+        minute = int(m.group(2) or 0)
+        ampm = m.group(4)
+
+        if not (1 <= hour <= 12):
+            raise HTTPException(status_code=400, detail="Invalid tob. Hour must be 1-12 when using AM/PM.")
+        if not (0 <= minute <= 59):
+            raise HTTPException(status_code=400, detail="Invalid tob. Minutes must be 00-59.")
+
+        if ampm == "AM":
+            hour24 = 0 if hour == 12 else hour
+        else:
+            hour24 = 12 if hour == 12 else hour + 12
+
+        return f"{hour24:02d}:{minute:02d}"
+
+    # 3) Try a few remaining common patterns with strptime.
+    for fmt in ("%I:%M %p", "%I %p", "%I:%M%p", "%I%p"):
+        try:
+            parsed = datetime.strptime(s_upper, fmt)
+            return parsed.strftime("%H:%M")
+        except Exception:
+            continue
+
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid tob. Expected HH:MM (24h) or a time like 11:00 AM.",
+    )
 
 
 def _kundli_stub_from_record(record: models.KundliRecord) -> dict:
@@ -498,17 +646,22 @@ def geocode_place(place: str) -> tuple[float, float] | None:
         if (now - float(ts)) <= float(cache_ttl):
             return float(lat), float(lon)
 
+    # Nominatim requires a valid User-Agent with contact information.
+    # You should still override via NOMINATIM_USER_AGENT in production.
     ua = os.getenv(
         "NOMINATIM_USER_AGENT",
-        "KundliHub/1.0 (geocoder; contact: set NOMINATIM_USER_AGENT)",
+        "KundliHub-App/1.0 (contact: kundli.hub.2003@gmail.com)",
     )
     url = f"https://nominatim.openstreetmap.org/search?format=json&limit=1&q={quote(norm)}"
 
-    # Retry a couple times with tiny backoff to ride out transient 429/5xx/timeouts.
+    # Retry a couple times with tiny backoff to ride out transient 5xx/timeouts.
+    # (429 rate-limit is treated as a hard failure for this request.)
+    jitter_max = float(os.getenv("GEOCODE_BACKOFF_JITTER_SECONDS", "0.25"))
     for attempt, sleep_s in enumerate((0.0, 0.4, 0.9)):
         if sleep_s:
             try:
-                time.sleep(sleep_s)
+                # Add a little jitter to reduce concurrent retries aligning.
+                time.sleep(float(sleep_s) + random.random() * max(0.0, jitter_max))
             except Exception:
                 pass
 
@@ -534,29 +687,79 @@ def geocode_place(place: str) -> tuple[float, float] | None:
                     pass
 
             return lat, lon
+        except HTTPError as e:
+            # If we are rate limited, caller should return a friendly 400.
+            if int(getattr(e, "code", 0) or 0) == 429:
+                raise
+            if attempt >= 2:
+                return None
+        except URLError:
+            if attempt >= 2:
+                return None
         except Exception:
-            # Try again if attempts remain.
             if attempt >= 2:
                 return None
 
     return None
 
 
-def _resolve_coords(request: KundliRequest) -> tuple[float, float]:
+def _resolve_coords(request: KundliRequest, *, context_key: str | None = None) -> tuple[float, float]:
+    """Resolve coordinates for a request.
+
+    Rules:
+    - If coords are missing: geocode (or return 400 with friendly message).
+    - If coords exist but user has changed the place significantly (best-effort per-user memory):
+      geocode and DO NOT fall back to old coords (to keep kundli accurate).
+    - If coords exist but appear to be a placeholder default: geocode if possible; otherwise fall back.
+    """
+
     lat = request.lat
     lon = request.lon
+    place_raw = str(request.place or "").strip()
+    place_key = _normalize_place_key(place_raw)
 
+    # Best-effort per-process memory of the last place string per context (e.g., user id).
+    prev_key = None
+    if context_key and place_key:
+        try:
+            cache = _resolve_coords._last_place  # type: ignore[attr-defined]
+        except Exception:
+            cache = {}
+            _resolve_coords._last_place = cache  # type: ignore[attr-defined]
+        prev_key = cache.get(context_key)
+        cache[context_key] = place_key
+
+    # If coords are missing, we must geocode.
     if lat is None or lon is None:
-        coords = geocode_place(request.place)
-        if not coords:
-            raise HTTPException(status_code=400, detail="Could not geocode place of birth")
-        return coords
+        return _geocode_or_400(place_raw)
 
-    # Heuristic: InputForm defaults to Kolkata; override if user entered a different place.
-    if request.place and abs(lat - 22.57) < 0.05 and abs(lon - 88.36) < 0.05:
-        coords = geocode_place(request.place)
-        if coords:
-            return coords
+    # If the place changed significantly from the last request for this user/context,
+    # always prefer geocoding over reusing potentially stale coords.
+    if prev_key and place_key and prev_key != place_key:
+        sim = _place_similarity(prev_key, place_key)
+        threshold = float(os.getenv("PLACE_CHANGE_SIMILARITY_THRESHOLD", "0.5"))
+        if sim < threshold:
+            return _geocode_or_400(place_raw)
+
+    # Placeholder override: if provided coords are close to a known default center, prefer geocoding.
+    # This is more explicit and tunable than raw abs(lat - x) checks.
+    try:
+        default_lat = float(os.getenv("PLACEHOLDER_DEFAULT_LAT", "22.5726"))
+        default_lon = float(os.getenv("PLACEHOLDER_DEFAULT_LON", "88.3639"))
+        default_radius_km = float(os.getenv("PLACEHOLDER_RADIUS_KM", "8"))
+        dist_km = _haversine_km(float(lat), float(lon), default_lat, default_lon)
+    except Exception:
+        dist_km = None
+        default_radius_km = None
+
+    if place_key and dist_km is not None and default_radius_km is not None and dist_km <= default_radius_km:
+        # Best-effort: if geocoding fails, keep provided coords (avoid blocking Kolkata users).
+        try:
+            coords = geocode_place(place_raw)
+            if coords:
+                return coords
+        except Exception:
+            pass
 
     return float(lat), float(lon)
 
@@ -573,7 +776,7 @@ def daily_horoscope_api(
     try:
         dob = _normalize_dob(request.dob)
         tob = _normalize_tob(request.tob)
-        lat, lon = _resolve_coords(request)
+        lat, lon = _resolve_coords(request, context_key=f"user:{int(current_user.id)}")
         kundli = astrology.calculate_complete_kundli(dob, tob, lat, lon)
 
         if request.for_date:
@@ -601,7 +804,7 @@ def sade_sati_api(
     try:
         dob = _normalize_dob(request.dob)
         tob = _normalize_tob(request.tob)
-        lat, lon = _resolve_coords(request)
+        lat, lon = _resolve_coords(request, context_key=f"user:{int(current_user.id)}")
         kundli = astrology.calculate_complete_kundli(dob, tob, lat, lon)
 
         if request.for_date:
@@ -628,22 +831,8 @@ def generate_kundli_api(
     try:
         dob = _normalize_dob(request.dob)
         tob = _normalize_tob(request.tob)
-        lat = request.lat
-        lon = request.lon
 
-        # If frontend didn't provide coordinates (or is still using the placeholder Kolkata coords),
-        # geocode the place string so calculations match the user's intended location.
-        if lat is None or lon is None:
-            coords = geocode_place(request.place)
-            if not coords:
-                raise HTTPException(status_code=400, detail="Could not geocode place of birth")
-            lat, lon = coords
-        else:
-            # Heuristic: InputForm defaults to Kolkata; override if user entered a different place.
-            if request.place and abs(lat - 22.57) < 0.05 and abs(lon - 88.36) < 0.05:
-                coords = geocode_place(request.place)
-                if coords:
-                    lat, lon = coords
+        lat, lon = _resolve_coords(request, context_key=f"user:{int(current_user.id)}")
 
         results = astrology.calculate_complete_kundli(dob, tob, lat, lon)
 
@@ -752,6 +941,7 @@ def generate_kundli_api(
             results["save_error"] = f"{type(e).__name__}: {str(e)}"
             return results
     except Exception as e:
+        logger.exception("Unhandled error in generate_kundli_api")
         try:
             db.rollback()
         except Exception:
@@ -769,20 +959,7 @@ def calculate_kundli_api(request: KundliRequest):
     try:
         dob = _normalize_dob(request.dob)
         tob = _normalize_tob(request.tob)
-        lat = request.lat
-        lon = request.lon
-
-        if lat is None or lon is None:
-            coords = geocode_place(request.place)
-            if not coords:
-                raise HTTPException(status_code=400, detail="Could not geocode place of birth")
-            lat, lon = coords
-        else:
-            if request.place and abs(lat - 22.57) < 0.05 and abs(lon - 88.36) < 0.05:
-                coords = geocode_place(request.place)
-                if coords:
-                    lat, lon = coords
-
+        lat, lon = _resolve_coords(request)
         return astrology.calculate_complete_kundli(dob, tob, lat, lon)
     except HTTPException:
         raise

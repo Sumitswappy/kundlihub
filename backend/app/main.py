@@ -274,6 +274,49 @@ def _add_years_safe(d: date, years: int) -> date:
     return date(y, d.month, day)
 
 
+def _normalize_dob(dob: str) -> str:
+    """Normalize a date-of-birth string to ISO (YYYY-MM-DD).
+
+    Frontends sometimes send DD-MM-YYYY or DD/MM/YYYY; astrology + panchang code
+    expects YYYY-MM-DD.
+    """
+
+    dob_s = (str(dob) if dob is not None else "").strip()
+    if not dob_s:
+        raise HTTPException(status_code=422, detail="dob is required")
+
+    try:
+        return date.fromisoformat(dob_s).isoformat()
+    except Exception:
+        pass
+
+    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%Y/%m/%d", "%Y.%m.%d"):
+        try:
+            return datetime.strptime(dob_s, fmt).date().isoformat()
+        except Exception:
+            continue
+
+    raise HTTPException(status_code=422, detail="Invalid dob; expected YYYY-MM-DD")
+
+
+def _normalize_tob(tob: str) -> str:
+    """Normalize a time-of-birth string to HH:MM (24h)."""
+
+    tob_s = (str(tob) if tob is not None else "").strip()
+    if not tob_s:
+        raise HTTPException(status_code=422, detail="tob is required")
+
+    # Common case: browser <input type="time"> may send HH:MM or HH:MM:SS
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            parsed = datetime.strptime(tob_s, fmt)
+            return parsed.strftime("%H:%M")
+        except Exception:
+            continue
+
+    raise HTTPException(status_code=422, detail="Invalid tob; expected HH:MM")
+
+
 def _kundli_stub_from_record(record: models.KundliRecord) -> dict:
     """Build the minimal kundli dict needed for Sade Sati (Moon rashi)."""
     planets = []
@@ -470,8 +513,10 @@ def daily_horoscope_api(
     Uses natal Moon sign and today's Moon transit as the primary signal.
     """
     try:
+        dob = _normalize_dob(request.dob)
+        tob = _normalize_tob(request.tob)
         lat, lon = _resolve_coords(request)
-        kundli = astrology.calculate_complete_kundli(request.dob, request.tob, lat, lon)
+        kundli = astrology.calculate_complete_kundli(dob, tob, lat, lon)
 
         if request.for_date:
             try:
@@ -496,8 +541,10 @@ def sade_sati_api(
 ):
     """Compute Shani Sade Sati phases + remedies based on natal Moon sign."""
     try:
+        dob = _normalize_dob(request.dob)
+        tob = _normalize_tob(request.tob)
         lat, lon = _resolve_coords(request)
-        kundli = astrology.calculate_complete_kundli(request.dob, request.tob, lat, lon)
+        kundli = astrology.calculate_complete_kundli(dob, tob, lat, lon)
 
         if request.for_date:
             try:
@@ -521,6 +568,8 @@ def generate_kundli_api(
 ):
     # 1. Perform Calculations
     try:
+        dob = _normalize_dob(request.dob)
+        tob = _normalize_tob(request.tob)
         lat = request.lat
         lon = request.lon
 
@@ -538,17 +587,15 @@ def generate_kundli_api(
                 if coords:
                     lat, lon = coords
 
-        results = astrology.calculate_complete_kundli(
-            request.dob, request.tob, lat, lon
-        )
+        results = astrology.calculate_complete_kundli(dob, tob, lat, lon)
         
         # 2. Save to Neon DB
         new_record = models.KundliRecord(
             user_id=int(current_user.id),
             full_name=request.full_name,
             gender=request.gender,
-            dob=request.dob,
-            tob=request.tob,
+            dob=dob,
+            tob=tob,
             place=request.place,
             lat=float(lat) if lat is not None else None,
             lon=float(lon) if lon is not None else None,
@@ -654,6 +701,8 @@ def calculate_kundli_api(request: KundliRequest):
     (like avakhada) were persisted.
     """
     try:
+        dob = _normalize_dob(request.dob)
+        tob = _normalize_tob(request.tob)
         lat = request.lat
         lon = request.lon
 
@@ -668,7 +717,7 @@ def calculate_kundli_api(request: KundliRequest):
                 if coords:
                     lat, lon = coords
 
-        return astrology.calculate_complete_kundli(request.dob, request.tob, lat, lon)
+        return astrology.calculate_complete_kundli(dob, tob, lat, lon)
     except HTTPException:
         raise
     except Exception as e:
@@ -828,9 +877,9 @@ def get_sade_sati_periods(
 
     # Lazily compute & persist from birth.
     try:
-        birth_dt = date.fromisoformat(str(record.dob))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Record has invalid dob; expected YYYY-MM-DD")
+        birth_dt = date.fromisoformat(_normalize_dob(str(record.dob)))
+    except HTTPException as e:
+        raise HTTPException(status_code=400, detail=f"Record has invalid dob; {e.detail}")
 
     years_ahead = int(os.getenv("SADE_SATI_TIMELINE_YEARS", "100"))
     end_dt = _add_years_safe(birth_dt, years_ahead)
@@ -845,7 +894,12 @@ def get_sade_sati_periods(
             if not coords:
                 raise HTTPException(status_code=400, detail="Could not geocode place for legacy record")
             lat, lon = coords
-        kundli = astrology.calculate_complete_kundli(str(record.dob), str(record.tob), float(lat), float(lon))
+        kundli = astrology.calculate_complete_kundli(
+            _normalize_dob(str(record.dob)),
+            _normalize_tob(str(record.tob)),
+            float(lat),
+            float(lon),
+        )
 
     timeline = build_sade_sati_timeline(kundli=kundli, start=birth_dt, end=end_dt)
     if not timeline.get("ok"):

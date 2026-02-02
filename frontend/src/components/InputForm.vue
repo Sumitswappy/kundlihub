@@ -391,7 +391,7 @@ const handleSubmit = async () => {
   }
 };
 
-const AUTO_REFRESH_MS = 60000;
+const AUTO_REFRESH_MS = 15000;
 let refreshIntervalId;
 
 const handleWindowFocus = () => {

@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from fastapi.middleware.cors import CORSMiddleware
 from . import models, database, astrology
 from . import auth
@@ -588,103 +589,111 @@ def generate_kundli_api(
                     lat, lon = coords
 
         results = astrology.calculate_complete_kundli(dob, tob, lat, lon)
-        
-        # 2. Save to Neon DB
-        new_record = models.KundliRecord(
-            user_id=int(current_user.id),
-            full_name=request.full_name,
-            gender=request.gender,
-            dob=dob,
-            tob=tob,
-            place=request.place,
-            lat=float(lat) if lat is not None else None,
-            lon=float(lon) if lon is not None else None,
-        )
 
-        # Normalized one-to-one rows
-        p = results.get("panchang") or {}
-        new_record.panchang_row = models.KundliPanchang(
-            lagna=p.get("lagna"),
-            lagna_rashi=p.get("lagna_rashi"),
-            lat=p.get("lat"),
-            lon=p.get("lon"),
-            tz=p.get("tz"),
-            tithi=p.get("tithi"),
-            tithi_num=p.get("tithi_num"),
-            karan=p.get("karan"),
-            yog=p.get("yog"),
-            nakshatra=p.get("nakshatra"),
-            sunrise=p.get("sunrise"),
-            sunset=p.get("sunset"),
-            ayanamsha=p.get("ayanamsha"),
-        )
-
-        a = results.get("avakhada") or {}
-        new_record.avakhada_row = models.KundliAvakhada(
-            varna=a.get("varna"),
-            vashya=a.get("vashya"),
-            yoni=a.get("yoni"),
-            yoni_english=a.get("yoni_english"),
-            gan=a.get("gan"),
-            nadi=a.get("nadi"),
-            sign=a.get("sign"),
-            sign_lord=a.get("sign_lord"),
-            nakshatra_charan=a.get("nakshatra_charan"),
-            yog=a.get("yog"),
-            karan=a.get("karan"),
-            tithi=a.get("tithi"),
-            paya=a.get("paya"),
-            paya_nakshatra=a.get("paya_nakshatra"),
-            paya_moon_house=a.get("paya_moon_house"),
-            moon_house=a.get("moon_house"),
-            name_alphabet=a.get("name_alphabet"),
-        )
-
-        # Normalized one-to-many rows
-        new_record.planet_rows = []
-        for pl in results.get("planets") or []:
-            new_record.planet_rows.append(
-                models.KundliPlanet(
-                    name=pl.get("name"),
-                    lon=pl.get("lon"),
-                    deg=pl.get("deg"),
-                    rashi=pl.get("rashi"),
-                    sign=pl.get("sign"),
-                    sign_lord=pl.get("sign_lord"),
-                    nakshatra=pl.get("nakshatra"),
-                    nakshatra_pada=pl.get("nakshatra_pada"),
-                    nakshatra_lord=pl.get("nakshatra_lord"),
-                    house=pl.get("house"),
-                    retro=pl.get("retro"),
-                    combust=pl.get("combust"),
-                )
-            )
-
-        new_record.dasha_rows = []
-        for i, row in enumerate(results.get("dasha") or []):
-            new_record.dasha_rows.append(
-                models.KundliDashaPeriod(
-                    level="mahadasha",
-                    seq=i,
-                    planet=row.get("planet"),
-                    start_date=row.get("start_date"),
-                    end_date=row.get("end_date"),
-                    start_label=row.get("start_label"),
-                    years=row.get("years"),
-                    total_years=row.get("total_years"),
-                    offset_years=row.get("offset_years"),
-                )
-            )
-
-        db.add(new_record)
-        db.commit()
-        db.refresh(new_record)
-
+        # 2. Save to DB (best-effort). If saving fails, still return the computed kundli.
         try:
-            results["record_id"] = int(new_record.id)
-        except Exception:
-            pass
-        return results
+            new_record = models.KundliRecord(
+                user_id=int(current_user.id),
+                full_name=request.full_name,
+                gender=request.gender,
+                dob=dob,
+                tob=tob,
+                place=request.place,
+                lat=float(lat) if lat is not None else None,
+                lon=float(lon) if lon is not None else None,
+            )
+
+            # Normalized one-to-one rows
+            p = results.get("panchang") or {}
+            new_record.panchang_row = models.KundliPanchang(
+                lagna=p.get("lagna"),
+                lagna_rashi=p.get("lagna_rashi"),
+                lat=p.get("lat"),
+                lon=p.get("lon"),
+                tz=p.get("tz"),
+                tithi=p.get("tithi"),
+                tithi_num=p.get("tithi_num"),
+                karan=p.get("karan"),
+                yog=p.get("yog"),
+                nakshatra=p.get("nakshatra"),
+                sunrise=p.get("sunrise"),
+                sunset=p.get("sunset"),
+                ayanamsha=p.get("ayanamsha"),
+            )
+
+            a = results.get("avakhada") or {}
+            new_record.avakhada_row = models.KundliAvakhada(
+                varna=a.get("varna"),
+                vashya=a.get("vashya"),
+                yoni=a.get("yoni"),
+                yoni_english=a.get("yoni_english"),
+                gan=a.get("gan"),
+                nadi=a.get("nadi"),
+                sign=a.get("sign"),
+                sign_lord=a.get("sign_lord"),
+                nakshatra_charan=a.get("nakshatra_charan"),
+                yog=a.get("yog"),
+                karan=a.get("karan"),
+                tithi=a.get("tithi"),
+                paya=a.get("paya"),
+                paya_nakshatra=a.get("paya_nakshatra"),
+                paya_moon_house=a.get("paya_moon_house"),
+                moon_house=a.get("moon_house"),
+                name_alphabet=a.get("name_alphabet"),
+            )
+
+            # Normalized one-to-many rows
+            new_record.planet_rows = []
+            for pl in results.get("planets") or []:
+                new_record.planet_rows.append(
+                    models.KundliPlanet(
+                        name=pl.get("name"),
+                        lon=pl.get("lon"),
+                        deg=pl.get("deg"),
+                        rashi=pl.get("rashi"),
+                        sign=pl.get("sign"),
+                        sign_lord=pl.get("sign_lord"),
+                        nakshatra=pl.get("nakshatra"),
+                        nakshatra_pada=pl.get("nakshatra_pada"),
+                        nakshatra_lord=pl.get("nakshatra_lord"),
+                        house=pl.get("house"),
+                        retro=pl.get("retro"),
+                        combust=pl.get("combust"),
+                    )
+                )
+
+            new_record.dasha_rows = []
+            for i, row in enumerate(results.get("dasha") or []):
+                new_record.dasha_rows.append(
+                    models.KundliDashaPeriod(
+                        level="mahadasha",
+                        seq=i,
+                        planet=row.get("planet"),
+                        start_date=row.get("start_date"),
+                        end_date=row.get("end_date"),
+                        start_label=row.get("start_label"),
+                        years=row.get("years"),
+                        total_years=row.get("total_years"),
+                        offset_years=row.get("offset_years"),
+                    )
+                )
+
+            db.add(new_record)
+            db.commit()
+            db.refresh(new_record)
+
+            results["saved"] = True
+            results["record_id"] = int(getattr(new_record, "id", 0) or 0) or None
+            return results
+        except SQLAlchemyError as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            results["saved"] = False
+            results["record_id"] = None
+            results["save_error"] = f"{type(e).__name__}: {str(e)}"
+            return results
     except Exception as e:
         try:
             db.rollback()

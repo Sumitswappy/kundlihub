@@ -18,6 +18,9 @@
                 <label class="block text-sm font-bold text-gray-700 mb-1.5">Full Name</label>
                 <input v-model="form.full_name" type="text" placeholder="E.g. Firstname Lastname"
                   class="w-full px-5 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none transition text-base" required />
+                <p v-if="touched.full_name && errors.full_name" class="mt-1 text-xs font-semibold text-red-600">
+                  {{ errors.full_name }}
+                </p>
               </div>
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -25,11 +28,17 @@
                   <label class="block text-sm font-bold text-gray-700 mb-1.5">Date of Birth</label>
                   <input v-model="form.dob" type="date"
                     class="w-full px-5 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none transition text-base" required />
+                  <p v-if="touched.dob && errors.dob" class="mt-1 text-xs font-semibold text-red-600">
+                    {{ errors.dob }}
+                  </p>
                 </div>
                 <div>
                   <label class="block text-sm font-bold text-gray-700 mb-1.5">Time of Birth</label>
                   <input v-model="form.tob" type="time"
                     class="w-full px-5 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none transition text-base" required />
+                  <p v-if="touched.tob && errors.tob" class="mt-1 text-xs font-semibold text-red-600">
+                    {{ errors.tob }}
+                  </p>
                 </div>
               </div>
 
@@ -43,11 +52,17 @@
                     <option value="Female">Female</option>
                     <option value="Other">Other</option>
                   </select>
+                  <p v-if="touched.gender && errors.gender" class="mt-1 text-xs font-semibold text-red-600">
+                    {{ errors.gender }}
+                  </p>
                 </div>
                 <div>
                   <label class="block text-sm font-bold text-gray-700 mb-1.5">Place of Birth</label>
                   <input v-model="form.place" type="text" placeholder="City, State, Country"
                     class="w-full px-5 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none transition text-base" required />
+                  <p v-if="touched.place && errors.place" class="mt-1 text-xs font-semibold text-red-600">
+                    {{ errors.place }}
+                  </p>
                 </div>
               </div>
             </div>
@@ -142,7 +157,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '../api/client';
 const emit = defineEmits(['submit-success']);
 
@@ -159,6 +174,68 @@ const history = ref([]);
 const historyLoading = ref(false);
 const historyFetching = ref(false);
 const searchQuery = ref('');
+
+const touched = reactive({ full_name: false, gender: false, dob: false, tob: false, place: false });
+const errors = reactive({ full_name: '', gender: '', dob: '', tob: '', place: '' });
+
+const _trimOrEmpty = (v) => (v == null ? '' : String(v)).trim();
+
+const normalizeDob = (dob) => {
+  const s = _trimOrEmpty(dob);
+  if (!s) return '';
+  // Accept YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // Accept DD-MM-YYYY or DD/MM/YYYY
+  const m = s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return s;
+};
+
+const normalizeTob = (tob) => {
+  const s = _trimOrEmpty(tob);
+  if (!s) return '';
+  const m = s.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return s;
+  return `${m[1]}:${m[2]}`;
+};
+
+const validateForm = ({ markTouched = false } = {}) => {
+  if (markTouched) {
+    touched.full_name = true;
+    touched.gender = true;
+    touched.dob = true;
+    touched.tob = true;
+    touched.place = true;
+  }
+
+  const name = _trimOrEmpty(form.full_name);
+  errors.full_name = name.length >= 2 ? '' : 'Please enter your full name.';
+
+  const gender = _trimOrEmpty(form.gender);
+  errors.gender = gender ? '' : 'Please select gender.';
+
+  const dobIso = normalizeDob(form.dob);
+  errors.dob = /^\d{4}-\d{2}-\d{2}$/.test(dobIso) ? '' : 'Please select a valid date.';
+
+  const tobNorm = normalizeTob(form.tob);
+  errors.tob = /^\d{2}:\d{2}$/.test(tobNorm) ? '' : 'Please select a valid time.';
+
+  const place = _trimOrEmpty(form.place);
+  errors.place = place.length >= 3 ? '' : 'Please enter place of birth.';
+
+  return !errors.full_name && !errors.gender && !errors.dob && !errors.tob && !errors.place;
+};
+
+// Live validation once fields are interacted with.
+watch(
+  () => ({ ...form }),
+  () => {
+    if (touched.full_name || touched.gender || touched.dob || touched.tob || touched.place) {
+      validateForm();
+    }
+  },
+  { deep: true }
+);
 
 // Filtered History
 const filteredHistory = computed(() => {
@@ -266,10 +343,26 @@ const handleSubmit = async () => {
   loading.value = true;
   message.value = '';
   try {
+    const ok = validateForm({ markTouched: true });
+    if (!ok) {
+      isError.value = true;
+      message.value = 'Please fix the highlighted fields.';
+      return;
+    }
+
+    const payload = {
+      ...form,
+      full_name: _trimOrEmpty(form.full_name),
+      gender: _trimOrEmpty(form.gender),
+      dob: normalizeDob(form.dob),
+      tob: normalizeTob(form.tob),
+      place: _trimOrEmpty(form.place),
+    };
+
     const endpoint = props.isLoggedIn ? '/generate' : '/calculate';
-    const res = await api.post(endpoint, form);
+    const res = await api.post(endpoint, payload);
     const recordId = res?.data?.record_id;
-    emit('submit-success', { kundli: res.data, request: { ...form, id: recordId || null } });
+    emit('submit-success', { kundli: res.data, request: { ...payload, id: recordId || null } });
 
     if (props.isLoggedIn) {
       await fetchHistory();
@@ -279,7 +372,20 @@ const handleSubmit = async () => {
     }
   } catch (e) {
     isError.value = true;
-    message.value = "Server error. Check connection.";
+    const status = e?.response?.status
+    const detail = e?.response?.data?.detail
+
+    if (status === 401) {
+      message.value = 'Session expired. Please login again.'
+      return
+    }
+
+    if (detail) {
+      message.value = String(detail)
+      return
+    }
+
+    message.value = status ? `Server error (${status}).` : 'Server error. Check connection.';
   } finally {
     loading.value = false;
   }
